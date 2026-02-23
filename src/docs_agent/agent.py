@@ -11,13 +11,6 @@ from docs_agent.config import (
     DISPLAY_HEIGHT,
     DISPLAY_WIDTH,
     MAX_AGENT_ITERATIONS,
-    OLLAMA_CONTAINER,
-    POSTGRES_CONTAINER,
-    POSTGRES_DB,
-    POSTGRES_PORT,
-    POSTGRES_USER,
-    WHODB_CONTAINER,
-    WHODB_PORT,
     WRAPUP_THRESHOLD,
 )
 from docs_agent.docker_manager import exec_in_desktop, start_recording, stop_recording, take_screenshot, xdotool
@@ -31,20 +24,19 @@ log = logging.getLogger(__name__)
 # System prompt
 # ---------------------------------------------------------------------------
 
-def build_system_prompt(page: Page, session_state: SessionState) -> str:
+def build_system_prompt(page: Page, session_state: SessionState, environment: str) -> str:
     failures_json = json.dumps(session_state.to_context(), indent=2) if session_state.failures else "[]"
+
+    env_block = ""
+    if environment.strip():
+        env_block = f"\nENVIRONMENT:\n- You are on an Ubuntu desktop with Firefox, a terminal, and standard CLI tools.\n{environment}\n"
+    else:
+        env_block = "\nENVIRONMENT:\n- You are on an Ubuntu desktop with Firefox, a terminal, and standard CLI tools.\n"
+
     return f"""\
 You are a documentation QA agent. Your job is to test a documentation page by
 following every instruction exactly as described, as if you were a new user.
-
-ENVIRONMENT:
-- You are on an Ubuntu desktop with Firefox, a terminal, and standard CLI tools.
-- WhoDB is running at http://{WHODB_CONTAINER}:{WHODB_PORT}
-- PostgreSQL is running at {POSTGRES_CONTAINER}:{POSTGRES_PORT}
-  (user={POSTGRES_USER}, password=whodb, db={POSTGRES_DB})
-  It has a "test_schema" with sample data (users, products, orders, order_items, reviews).
-- Ollama (if applicable) is at http://{OLLAMA_CONTAINER}:11434 with llama3.2:1b.
-
+{env_block}
 TURN BUDGET: You have at most {MAX_AGENT_ITERATIONS} tool-use turns to complete this test.
 Plan accordingly. You MUST produce your structured assessment before running out
 of turns. If you are notified that you are running low, stop testing immediately
@@ -202,10 +194,10 @@ def _dispatch_tool(tool_name: str, tool_input: dict) -> list[dict]:
 # Agent loop
 # ---------------------------------------------------------------------------
 
-def test_page(page: Page, session_state: SessionState) -> PageResult:
+def test_page(page: Page, session_state: SessionState, environment: str) -> PageResult:
     """Run the computer-use agent on a single documentation page."""
     provider = get_provider()
-    system = build_system_prompt(page, session_state)
+    system = build_system_prompt(page, session_state, environment)
     provider.setup(system, DISPLAY_WIDTH, DISPLAY_HEIGHT)
 
     total_tokens = 0
@@ -313,8 +305,6 @@ def _parse_result(page: Page, text: str, duration: float, api_calls: int, tokens
     if fr:
         failure_reason = fr.group(1).strip()
 
-    # If the agent exhausted its iteration budget without producing a verdict,
-    # this is a threshold failure — the page is too long/complex.
     if hit_limit and not m:
         status = PageStatus.FAILED
         failure_type = FailureType.INDEPENDENT

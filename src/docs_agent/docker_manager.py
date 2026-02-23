@@ -5,7 +5,6 @@ All Docker operations use subprocess (no docker-py dependency).
 
 from __future__ import annotations
 
-import base64
 import logging
 import subprocess
 import time
@@ -17,21 +16,11 @@ from docs_agent.config import (
     DISPLAY_HEIGHT,
     DISPLAY_WIDTH,
     NETWORK_NAME,
-    OLLAMA_CONTAINER,
-    POSTGRES_CONTAINER,
-    POSTGRES_DB,
-    POSTGRES_PASSWORD,
-    POSTGRES_PORT,
-    POSTGRES_USER,
-    WHODB_CONTAINER,
-    WHODB_PORT,
 )
 
 log = logging.getLogger(__name__)
 
-ASSETS_DIR = Path(__file__).resolve().parent.parent.parent / "assets"
-DOCKERFILE_DIR = ASSETS_DIR.parent  # tools/docs-agent/
-SAMPLE_SQL = ASSETS_DIR / "sample-data.sql"
+SANDBOX_DIR = Path(__file__).resolve().parent / "sandbox"
 
 
 # ---------------------------------------------------------------------------
@@ -63,13 +52,38 @@ def remove_network() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Desktop container
+# Docker Compose — manages app infrastructure
+# ---------------------------------------------------------------------------
+
+def compose_up(compose_file: Path, profiles: list[str] | None = None) -> None:
+    """Bring up services defined in a docker-compose file."""
+    cmd = ["docker", "compose", "-f", str(compose_file)]
+    for p in (profiles or []):
+        cmd += ["--profile", p]
+    cmd += ["up", "-d", "--wait"]
+    _run(cmd, timeout=300)
+    log.info("Compose services up (profiles=%s)", profiles or [])
+
+
+def compose_down(compose_file: Path) -> None:
+    """Tear down all compose services."""
+    _run(["docker", "compose", "-f", str(compose_file), "down", "--remove-orphans"], check=False)
+    log.info("Compose services down")
+
+
+# ---------------------------------------------------------------------------
+# Desktop container — always managed by the agent
 # ---------------------------------------------------------------------------
 
 def start_desktop() -> None:
+    """Build and start the desktop sandbox container.
+
+    Uses the bundled Dockerfile in ``src/docs_agent/sandbox/``.
+    Attaches to the shared network so the desktop can reach compose-managed services.
+    """
     _run(["docker", "rm", "-f", DESKTOP_CONTAINER], check=False)
     log.info("Building desktop image...")
-    _run(["docker", "build", "-t", "docsagent-desktop", str(DOCKERFILE_DIR)], timeout=300)
+    _run(["docker", "build", "-t", "docsagent-desktop", str(SANDBOX_DIR)], timeout=300)
     _run([
         "docker", "run", "-d",
         "--privileged",
@@ -95,114 +109,14 @@ def _wait_for_desktop(timeout: int = 30) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Postgres
-# ---------------------------------------------------------------------------
-
-def start_postgres() -> None:
-    _run(["docker", "rm", "-f", POSTGRES_CONTAINER], check=False)
-    # Mount sample-data.sql into /docker-entrypoint-initdb.d/ so Postgres
-    # executes it during init, before the port opens. This eliminates the
-    # race condition of seeding after pg_isready.
-    _run([
-        "docker", "run", "-d",
-        "--name", POSTGRES_CONTAINER,
-        "--network", NETWORK_NAME,
-        "-e", f"POSTGRES_USER={POSTGRES_USER}",
-        "-e", f"POSTGRES_PASSWORD={POSTGRES_PASSWORD}",
-        "-e", f"POSTGRES_DB={POSTGRES_DB}",
-        "-v", f"{SAMPLE_SQL}:/docker-entrypoint-initdb.d/init.sql:ro",
-        "postgres:15",
-    ])
-    _wait_for_postgres()
-
-
-def _wait_for_postgres(timeout: int = 90) -> None:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        r = _run(
-            ["docker", "exec", POSTGRES_CONTAINER, "pg_isready", "-U", POSTGRES_USER],
-            check=False,
-        )
-        if r.returncode == 0:
-            log.info("Postgres ready (with sample data)")
-            return
-        time.sleep(1)
-    raise RuntimeError("Postgres did not become ready")
-
-
-# ---------------------------------------------------------------------------
-# WhoDB
-# ---------------------------------------------------------------------------
-
-def start_whodb() -> None:
-    _run(["docker", "rm", "-f", WHODB_CONTAINER], check=False)
-    _run([
-        "docker", "run", "-d",
-        "--name", WHODB_CONTAINER,
-        "--network", NETWORK_NAME,
-        "clidey/whodb:latest",
-    ])
-    _wait_for_whodb()
-
-
-def _wait_for_whodb(timeout: int = 30) -> None:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        r = _run(
-            ["docker", "exec", DESKTOP_CONTAINER, "curl", "-sf", f"http://{WHODB_CONTAINER}:{WHODB_PORT}"],
-            check=False,
-        )
-        if r.returncode == 0:
-            log.info("WhoDB ready")
-            return
-        time.sleep(1)
-    raise RuntimeError("WhoDB did not become ready")
-
-
-# ---------------------------------------------------------------------------
-# Ollama
-# ---------------------------------------------------------------------------
-
-def start_ollama() -> None:
-    _run(["docker", "rm", "-f", OLLAMA_CONTAINER], check=False)
-    log.info("Pulling Ollama image (this may take a while on first run)...")
-    _run(["docker", "pull", "ollama/ollama:latest"], timeout=600)
-    _run([
-        "docker", "run", "-d",
-        "--name", OLLAMA_CONTAINER,
-        "--network", NETWORK_NAME,
-        "ollama/ollama:latest",
-    ])
-    _wait_for_ollama()
-    log.info("Pulling llama3.2:1b model (this may take a while)...")
-    _run(
-        ["docker", "exec", OLLAMA_CONTAINER, "ollama", "pull", "llama3.2:1b"],
-        timeout=600,
-    )
-    log.info("Ollama model ready")
-
-
-def _wait_for_ollama(timeout: int = 30) -> None:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        r = _run(
-            ["docker", "exec", DESKTOP_CONTAINER, "curl", "-sf", f"http://{OLLAMA_CONTAINER}:11434"],
-            check=False,
-        )
-        if r.returncode == 0:
-            log.info("Ollama ready")
-            return
-        time.sleep(1)
-    raise RuntimeError("Ollama did not become ready")
-
-
-# ---------------------------------------------------------------------------
 # Cleanup
 # ---------------------------------------------------------------------------
 
-def stop_all() -> None:
-    for name in (DESKTOP_CONTAINER, POSTGRES_CONTAINER, WHODB_CONTAINER, OLLAMA_CONTAINER):
-        _run(["docker", "rm", "-f", name], check=False)
+def stop_all(compose_file: Path | None = None) -> None:
+    """Remove the desktop container and optionally tear down compose services."""
+    _run(["docker", "rm", "-f", DESKTOP_CONTAINER], check=False)
+    if compose_file is not None:
+        compose_down(compose_file)
     remove_network()
     log.info("All containers stopped and removed")
 
@@ -258,9 +172,7 @@ def start_recording() -> None:
 
 def stop_recording() -> None:
     """Stop the ffmpeg recording gracefully."""
-    # Send SIGINT to ffmpeg so it finalizes the mp4 properly
     exec_in_desktop("pkill -INT ffmpeg || true")
-    # Wait for ffmpeg to flush and exit
     time.sleep(2)
     log.info("Screen recording stopped")
 

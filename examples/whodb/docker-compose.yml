@@ -1,0 +1,41 @@
+# WhoDB infrastructure for docs-agent QA testing.
+# The desktop sandbox is managed separately by the agent.
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: docsagent-postgres
+    environment:
+      POSTGRES_USER: whodb
+      POSTGRES_PASSWORD: whodb
+      POSTGRES_DB: whodb
+    volumes:
+      - ./assets/sample-data.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - docsagent-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U whodb"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  whodb:
+    image: clidey/whodb:latest
+    container_name: docsagent-whodb
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - docsagent-net
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: docsagent-ollama
+    profiles: [ollama]
+    networks:
+      - docsagent-net
+
+networks:
+  docsagent-net:
+    name: docsagent-net
+    external: true

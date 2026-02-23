@@ -64,7 +64,5 @@ class SessionState:
 class SessionConfig:
     name: str
     page_slugs: list[str]
-    needs_whodb: bool = True
-    needs_postgres: bool = True
-    needs_ollama: bool = False
     needs_desktop: bool = True
+    compose_profiles: list[str] = field(default_factory=list)

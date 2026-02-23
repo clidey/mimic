@@ -1,0 +1,114 @@
+name: whodb
+docs: assets/llms.txt
+
+# Free-text injected into the LLM system prompt — describes what's running
+environment: |
+  - WhoDB is running at http://whodb:8080
+  - PostgreSQL at postgres:5432 (user=whodb, password=whodb, db=whodb)
+    It has a "test_schema" with sample data (users, products, orders, order_items, reviews).
+  - Ollama (if applicable) is at http://ollama:11434 with llama3.2:1b.
+
+sessions:
+  - name: Installation & First Run
+    pages:
+      - installation
+      - first-login
+      - quick-start
+      - guides/complete-beginner
+
+  - name: Core Features
+    pages:
+      - features/database-connectivity
+      - features/schema-explorer
+      - features/sidebar-navigation
+      - features/storage-units
+      - resources/keyboard-shortcuts
+      - resources/comparisons/overview
+      - resources/comparisons/vs-phpmyadmin
+      - resources/comparisons/vs-pgadmin
+
+  - name: Data Management
+    pages:
+      - data/viewing-data
+      - data/adding-records
+      - data/editing-records
+      - data/deleting-records
+      - data/filtering-searching
+      - data/sorting-pagination
+      - use-cases/database-exploration
+      - use-cases/data-migration
+
+  - name: Query Interface
+    pages:
+      - query/scratchpad-intro
+      - query/writing-queries
+      - query/query-results
+      - query/query-history
+      - query/multiple-cells
+
+  - name: Visualization
+    pages:
+      - visualization/graph-view
+      - visualization/schema-topology
+      - visualization/relationships
+
+  - name: Advanced Features
+    pages:
+      - advanced/mock-data
+      - advanced/export-options
+      - advanced/where-conditions
+      - advanced/batch-operations
+      - best-practices/collaboration
+
+  - name: AI Chat
+    pages:
+      - ai/*
+      - best-practices/ai-usage
+    compose_profiles: [ollama]
+
+  - name: Tutorials
+    pages:
+      - guides/tutorials/*
+      - guides/roles/developers
+    compose_profiles: [ollama]
+
+  - name: Migration Guides
+    pages:
+      - guides/migrating-from-phpmyadmin
+      - guides/migrating-from-pgadmin
+
+  - name: Integrations
+    pages:
+      - resources/integrations/*
+      - resources/faq
+      - resources/troubleshooting
+
+  - name: Informational & Reference
+    needs_desktop: false
+    pages:
+      - introduction
+      - why-whodb
+      - guides/team-setup
+      - guides/roles/data-analysts
+      - guides/roles/database-administrators
+      - guides/roles/qa-testers
+      - use-cases/data-analysis
+      - use-cases/testing-development
+      - use-cases/debugging-production
+      - use-cases/ai-data-exploration
+      - best-practices/security
+      - best-practices/performance
+      - best-practices/data-management
+      - best-practices/query-optimization
+      - best-practices/postgresql
+      - best-practices/mysql
+      - best-practices/mongodb
+      - best-practices/access-control
+      - best-practices/documentation
+      - resources/common-errors
+      - resources/performance-tuning
+      - resources/comparisons/vs-dbeaver
+      - resources/comparisons/vs-tableplus
+      - resources/glossary
+      - resources/supported-databases
+      - resources/changelog
