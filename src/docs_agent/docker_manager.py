@@ -100,6 +100,9 @@ def _wait_for_desktop(timeout: int = 30) -> None:
 
 def start_postgres() -> None:
     _run(["docker", "rm", "-f", POSTGRES_CONTAINER], check=False)
+    # Mount sample-data.sql into /docker-entrypoint-initdb.d/ so Postgres
+    # executes it during init, before the port opens. This eliminates the
+    # race condition of seeding after pg_isready.
     _run([
         "docker", "run", "-d",
         "--name", POSTGRES_CONTAINER,
@@ -107,13 +110,13 @@ def start_postgres() -> None:
         "-e", f"POSTGRES_USER={POSTGRES_USER}",
         "-e", f"POSTGRES_PASSWORD={POSTGRES_PASSWORD}",
         "-e", f"POSTGRES_DB={POSTGRES_DB}",
+        "-v", f"{SAMPLE_SQL}:/docker-entrypoint-initdb.d/init.sql:ro",
         "postgres:15",
     ])
     _wait_for_postgres()
-    _seed_postgres()
 
 
-def _wait_for_postgres(timeout: int = 30) -> None:
+def _wait_for_postgres(timeout: int = 90) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         r = _run(
@@ -121,23 +124,10 @@ def _wait_for_postgres(timeout: int = 30) -> None:
             check=False,
         )
         if r.returncode == 0:
-            log.info("Postgres ready")
+            log.info("Postgres ready (with sample data)")
             return
         time.sleep(1)
     raise RuntimeError("Postgres did not become ready")
-
-
-def _seed_postgres() -> None:
-    # Copy SQL into container, then execute
-    _run(["docker", "cp", str(SAMPLE_SQL), f"{POSTGRES_CONTAINER}:/tmp/sample-data.sql"])
-    r = _run([
-        "docker", "exec", POSTGRES_CONTAINER,
-        "psql", "-U", POSTGRES_USER, "-d", POSTGRES_DB, "-f", "/tmp/sample-data.sql",
-    ], check=False)
-    if r.returncode != 0:
-        log.warning("Seed SQL returned non-zero: %s", r.stderr)
-    else:
-        log.info("Postgres seeded with sample data")
 
 
 # ---------------------------------------------------------------------------
