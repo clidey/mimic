@@ -2,30 +2,85 @@
 
 Automated QA agent that tests documentation by following instructions as a real user would — spinning up a sandboxed desktop in Docker, navigating via screenshots and mouse/keyboard, and producing Markdown reports with pass/fail results and screen recordings.
 
-Configured via `qa-project.yaml`. Supports **Anthropic Claude** and **OpenAI CUA**. [How it works &darr;](#how-it-works)
+Supports **Anthropic Claude** and **OpenAI CUA**. [How it works &darr;](#how-it-works)
 
-## Setup
+## Quick start
 
 **Requirements:** Python 3.10+, [uv](https://github.com/astral-sh/uv), Docker
 
 ```bash
+# 1. Clone and install
 git clone <repo-url> && cd qa-agent
 uv sync
-cp .env.example .env   # set ANTHROPIC_API_KEY or OPENAI_API_KEY
+
+# 2. Add your API key
+cp .env.example .env
+# edit .env → set ANTHROPIC_API_KEY or OPENAI_API_KEY
+
+# 3. Run the example
+uv run docs-agent --project examples/minimal --list-pages
+uv run docs-agent --project examples/minimal --page getting-started
 ```
 
-## Quick start
+Results appear in `reports/` — a `summary.md`, per-page pass/fail details, and `.mp4` screen recordings.
+
+## Create your own project
 
 ```bash
-uv run docs-agent --project examples/whodb --list-pages
-uv run docs-agent --project examples/whodb --page installation
-uv run docs-agent --project examples/whodb --session "Data Management"
-uv run docs-agent --project examples/whodb   # run everything
+uv run docs-agent init my-project
 ```
 
-## Adding your own project
+This scaffolds:
 
-Create a directory with a `qa-project.yaml` and (optionally) a `docker-compose.yml`:
+```
+my-project/
+  qa-project.yaml       # project config — edit name, environment, sessions
+  docker-compose.yml    # add your app's services here
+  docs/
+    getting-started.mdx # sample doc page
+```
+
+**Edit the three files:**
+
+1. **`qa-project.yaml`** — set your app's name and describe the running environment (Docker hostnames, ports, credentials the LLM needs to know about).
+2. **`docker-compose.yml`** — add your app's services. They must join the `docsagent-net` network.
+3. **`docs/`** — add one `.mdx` file per page you want tested. The filename becomes the page slug.
+
+Then run it:
+
+```bash
+uv run docs-agent --project my-project --list-pages   # verify docs parse correctly
+uv run docs-agent --project my-project                 # run full QA suite
+```
+
+See the [reference](#reference) below for all config options, docs source modes, and cloud runners.
+
+## Walkthrough: the minimal example
+
+The repo includes `examples/minimal/` — an nginx server with two doc pages:
+
+```
+examples/minimal/
+  qa-project.yaml       # points at docs/, describes environment
+  docker-compose.yml    # nginx on docsagent-net
+  docs/
+    getting-started.mdx # "open Firefox, go to http://web:80, verify welcome page"
+    server-status.mdx   # "run curl, check for 200 OK"
+```
+
+```bash
+# List what the agent will test
+uv run docs-agent --project examples/minimal --list-pages
+uv run docs-agent --project examples/minimal --list-sessions
+
+# Test a single page (starts Docker, launches sandbox, runs the agent)
+uv run docs-agent --project examples/minimal --page getting-started
+
+# Check results
+cat reports/*/summary.md
+```
+
+## Reference
 
 ### `qa-project.yaml`
 
@@ -33,6 +88,8 @@ Create a directory with a `qa-project.yaml` and (optionally) a `docker-compose.y
 name: my-project
 docs: docs/llms.txt       # see "Docs sources" below
 
+# Free-text injected into the LLM system prompt.
+# Tell it what's running and how to reach it (use Docker network hostnames, not localhost).
 environment: |
   - My app is running at http://myapp:3000
   - PostgreSQL at db:5432 (user=admin, password=secret, db=mydb)
@@ -98,16 +155,12 @@ Navigate to Settings > Billing ...
 
 ### `docker-compose.yml`
 
-Standard compose file for your app services. The agent manages the network and its own desktop container:
+Standard compose file for your app services. The agent manages the network and its own desktop container — you just define your services and join `docsagent-net`:
 
 ```yaml
 services:
   myapp:
     image: myorg/myapp:latest
-    networks: [docsagent-net]
-  db:
-    image: postgres:15
-    environment: { POSTGRES_PASSWORD: secret }
     networks: [docsagent-net]
 
 networks:
@@ -116,30 +169,74 @@ networks:
     external: true   # agent creates this network; compose joins it
 ```
 
+> **Important:** The `external: true` network is required. The agent creates `docsagent-net` before running compose so that your services and the agent's desktop sandbox share the same network. Without it, the LLM can't reach your app.
+
 ### Tips
 
-- Use **Docker network hostnames** (`http://myapp:3000`), not `localhost` — the LLM runs Firefox inside a container.
-- **`compose_profiles`** map to `docker compose --profile`. Use for optional services.
+- Use **Docker network hostnames** (`http://myapp:3000`), not `localhost` — the LLM runs Firefox inside a container on the Docker network.
+- **`compose_profiles`** map to `docker compose --profile`. Use for optional services that only some sessions need.
 - **Globs** in page lists (e.g. `guides/*`) expand against parsed slugs.
+- Always run `--list-pages` first to verify your docs parse correctly before spending API credits.
 
-## Environment variables
+### Cloud runners
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `AGENT_PROVIDER` | `anthropic` | `anthropic` or `openai` |
-| `ANTHROPIC_API_KEY` | — | Required for Anthropic |
-| `OPENAI_API_KEY` | — | Required for OpenAI |
-| `GCP_PROJECT` / `GCS_BUCKET` | — | For GCP cloud runner |
-| `AWS_REGION` / `S3_BUCKET` | — | For AWS cloud runner |
-
-## Cloud runners
+Launch on a GCP spot VM or AWS EC2 spot instance. Both package the repo, upload to a storage bucket, launch a VM, run the agent, upload results, and shut down.
 
 ```bash
 uv run docs-agent-gcp [--wait] [--cleanup]
 uv run docs-agent-aws [--wait] [--cleanup]
 ```
 
-## Reports
+`--wait` polls until the VM finishes and downloads results. `--cleanup` terminates a stuck instance.
+
+Results upload to `{bucket}/results/<timestamp>/`.
+
+#### Cloud configuration
+
+Set cloud variables in `.env` alongside your API key:
+
+**GCP** — requires `gcloud` CLI authenticated locally:
+
+```bash
+GCP_PROJECT=my-gcp-project
+GCS_BUCKET=my-bucket
+# optional: GCP_ZONE, GCP_MACHINE_TYPE, GCP_SPOT (defaults: us-central1-a, e2-standard-4, true)
+```
+
+**AWS** — requires `aws` CLI configured locally:
+
+```bash
+AWS_REGION=us-east-1
+S3_BUCKET=my-bucket
+AWS_ACCESS_KEY_ID=AKIA...        # for S3 access on the instance
+AWS_SECRET_ACCESS_KEY=...        # (or use AWS_IAM_INSTANCE_PROFILE instead)
+# optional: AWS_INSTANCE_TYPE, AWS_SPOT (defaults: m5.xlarge, true)
+```
+
+**Common:**
+
+```bash
+DOCS_AGENT_ARGS=--project examples/whodb --session "Core Features"
+```
+
+`DOCS_AGENT_ARGS` is passed to `docs-agent` on the VM. Set it to target a specific project/session.
+
+### Environment variables
+
+Set in `.env` (copy from `.env.example`):
+
+| Variable | Required | Description |
+|---|---|---|
+| `AGENT_PROVIDER` | No | `anthropic` (default) or `openai` |
+| `ANTHROPIC_API_KEY` | If using anthropic | Anthropic API key |
+| `OPENAI_API_KEY` | If using openai | OpenAI API key |
+| `DOCS_AGENT_ARGS` | No | CLI args passed through on cloud VMs |
+| `GCP_PROJECT` | For GCP runner | GCP project ID |
+| `GCS_BUCKET` | For GCP runner | GCS bucket name |
+| `AWS_REGION` | For AWS runner | AWS region |
+| `S3_BUCKET` | For AWS runner | S3 bucket name |
+
+### Reports
 
 ```
 reports/2025-01-15_14-30-00_full-run/
@@ -159,7 +256,7 @@ qa-project.yaml ──► parse docs ──► orchestrate sessions ──► ag
 ```
 
 1. **Parse** — The docs source (file, directory, URL, or live site) is split into `Page` objects.
-2. **Orchestrate** — Pages are grouped into sessions. Each session gets fresh containers via `docker compose up` plus the desktop sandbox.
+2. **Orchestrate** — Pages are grouped into sessions. Each session gets fresh containers via `docker compose up` plus a desktop sandbox.
 3. **Agent loop** — For each page, the LLM receives the docs content (or a URL to navigate to), then enters a tool-use loop: it sees screenshots, issues mouse/keyboard actions, and verifies each step.
 4. **Report** — Results are collected into timestamped Markdown reports with per-page pass/fail details and `.mp4` screen recordings.
 
@@ -167,7 +264,7 @@ qa-project.yaml ──► parse docs ──► orchestrate sessions ──► ag
 
 ```
 src/docs_agent/
-  __main__.py          CLI entry point
+  __main__.py          CLI entry point (+ init command)
   project.py           Load qa-project.yaml → ProjectConfig
   parser.py            Parse docs into Page objects
   orchestrator.py      Session lifecycle, compose up/down, reports
@@ -178,4 +275,8 @@ src/docs_agent/
   report.py            Markdown report generation
   providers/           LLM provider abstraction (Anthropic, OpenAI)
   gcp.py / aws.py      Cloud spot-instance launchers
+
+examples/
+  minimal/             Minimal example (nginx + 2 doc pages)
+  whodb/               Full example (80 pages, multiple sessions)
 ```

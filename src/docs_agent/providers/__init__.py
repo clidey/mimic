@@ -57,6 +57,14 @@ class Provider(ABC):
     ) -> ProviderResponse:
         """Send tool execution results (and optional nudge) and return the next response."""
 
+    def generate_assessment(self, last_screenshot_b64: str | None = None) -> str | None:
+        """Generate a structured assessment after the CUA loop.
+
+        Called when the CUA model didn't produce one itself. Returns assessment
+        text or None if not supported by this provider.
+        """
+        return None
+
     def close(self) -> None:
         """Clean up any resources. Default is a no-op."""
 

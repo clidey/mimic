@@ -1,0 +1,9 @@
+services:
+  web:
+    image: nginx:alpine
+    networks: [docsagent-net]
+
+networks:
+  docsagent-net:
+    name: docsagent-net
+    external: true

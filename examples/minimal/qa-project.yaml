@@ -1,0 +1,5 @@
+name: minimal-example
+docs: docs/                # directory mode — reads each .mdx file
+
+environment: |
+  - Nginx is running at http://web:80

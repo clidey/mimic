@@ -45,12 +45,33 @@ def find_instance(ec2, tag_name: str = INSTANCE_TAG) -> dict | None:
 
 
 def lookup_ubuntu_ami(region: str) -> str:
-    """Look up the latest Ubuntu 22.04 AMI via SSM parameter."""
-    ssm = boto3.client("ssm", region_name=region)
-    resp = ssm.get_parameter(
-        Name="/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-store/ami-id"
+    """Look up the latest Ubuntu 22.04 AMI.
+
+    Tries SSM parameter first (fastest), falls back to EC2 describe-images.
+    """
+    # Try SSM parameter (requires ssm:GetParameter permission)
+    try:
+        ssm = boto3.client("ssm", region_name=region)
+        resp = ssm.get_parameter(
+            Name="/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-store/ami-id"
+        )
+        return resp["Parameter"]["Value"]
+    except ClientError:
+        pass
+
+    # Fallback: query EC2 images directly
+    ec2 = boto3.client("ec2", region_name=region)
+    resp = ec2.describe_images(
+        Owners=["099720109477"],  # Canonical
+        Filters=[
+            {"Name": "name", "Values": ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]},
+            {"Name": "state", "Values": ["available"]},
+        ],
     )
-    return resp["Parameter"]["Value"]
+    images = sorted(resp["Images"], key=lambda i: i["CreationDate"], reverse=True)
+    if not images:
+        raise RuntimeError(f"No Ubuntu 22.04 AMI found in {region}")
+    return images[0]["ImageId"]
 
 
 # ---------------------------------------------------------------------------
@@ -58,11 +79,19 @@ def lookup_ubuntu_ami(region: str) -> str:
 # ---------------------------------------------------------------------------
 
 def build_startup_script(env: dict[str, str]) -> str:
-    api_key = require(env, "ANTHROPIC_API_KEY")
+    provider = env.get("AGENT_PROVIDER", "anthropic")
     bucket = require(env, "S3_BUCKET")
     region = get_region(env)
     agent_args = env.get("DOCS_AGENT_ARGS", "")
     profile = env.get("AWS_IAM_INSTANCE_PROFILE", "")
+
+    # Resolve the correct API key for the chosen provider
+    if provider == "openai":
+        api_key = require(env, "OPENAI_API_KEY")
+        key_export = f'export OPENAI_API_KEY="{api_key}"'
+    else:
+        api_key = require(env, "ANTHROPIC_API_KEY")
+        key_export = f'export ANTHROPIC_API_KEY="{api_key}"'
 
     # If no instance profile, bake credentials into the script
     cred_lines = ""
@@ -101,9 +130,20 @@ echo "=== docs-agent startup $(date) ==="
 
 # Install Docker + AWS CLI
 apt-get update -qq
-apt-get install -y -qq docker.io containerd curl awscli
+apt-get install -y -qq docker.io docker-compose-v2 containerd curl awscli
 systemctl start docker
 systemctl enable docker
+
+# Wait for Docker daemon to be fully ready
+echo "Waiting for Docker daemon..."
+for i in $(seq 1 30); do
+    if docker info >/dev/null 2>&1; then
+        echo "Docker is ready."
+        break
+    fi
+    echo "  attempt $i/30 — not ready, waiting 2s..."
+    sleep 2
+done
 
 # Install uv
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -120,7 +160,8 @@ cd /opt/docsagent/docs-agent
 uv sync
 
 # Run the agent
-export ANTHROPIC_API_KEY="{api_key}"
+export AGENT_PROVIDER="{provider}"
+{key_export}
 echo "=== Starting docs-agent $(date) ==="
 uv run docs-agent {agent_args} || true
 echo "=== docs-agent finished $(date) ==="
@@ -128,6 +169,7 @@ echo "=== docs-agent finished $(date) ==="
 # Upload results to S3
 if [ -d reports ]; then
     aws s3 sync reports/ s3://{bucket}/results/$TIMESTAMP/reports/
+    echo "$TIMESTAMP" | aws s3 cp - s3://{bucket}/latest.txt
     echo "Results uploaded to s3://{bucket}/results/$TIMESTAMP/"
 fi
 """
@@ -268,39 +310,59 @@ def cmd_wait(env: dict[str, str]) -> None:
             print(f"  Instance state: {state} — waiting 30s...")
             time.sleep(30)
 
-    # Find latest results in S3
-    print(f"\nListing results in s3://{bucket}/results/...")
+    # Find latest results via latest.txt pointer, fall back to listing
+    print("\nChecking results...")
+    latest_prefix = None
     try:
-        paginator = s3.get_paginator("list_objects_v2")
-        prefixes: set[str] = set()
-        for page in paginator.paginate(Bucket=bucket, Prefix="results/", Delimiter="/"):
-            for cp in page.get("CommonPrefixes", []):
-                prefixes.add(cp["Prefix"])
-    except ClientError as e:
-        print(f"Error listing S3 results: {e}")
-        return
+        obj = s3.get_object(Bucket=bucket, Key="latest.txt")
+        ts = obj["Body"].read().decode().strip()
+        if ts:
+            latest_prefix = f"results/{ts}/"
+            print(f"Latest run: {ts}")
+    except ClientError:
+        pass
 
-    if not prefixes:
-        print("No results found in S3 bucket.")
-        return
+    if not latest_prefix:
+        print(f"Listing results in s3://{bucket}/results/...")
+        try:
+            paginator = s3.get_paginator("list_objects_v2")
+            prefixes: set[str] = set()
+            for page in paginator.paginate(Bucket=bucket, Prefix="results/", Delimiter="/"):
+                for cp in page.get("CommonPrefixes", []):
+                    prefixes.add(cp["Prefix"])
+        except ClientError as e:
+            print(f"Error listing S3 results: {e}")
+            return
+        if not prefixes:
+            print("No results found in S3 bucket.")
+            return
+        latest_prefix = sorted(prefixes)[-1]
 
-    latest = sorted(prefixes)[-1]
-    print(f"Latest results: s3://{bucket}/{latest}")
+    print(f"Latest results: s3://{bucket}/{latest_prefix}")
 
-    # Download results
+    # Download only reports/ subfolder + runner log
     local_dir = AGENT_ROOT / "reports" / "aws-latest"
     local_dir.mkdir(parents=True, exist_ok=True)
     print(f"Downloading to {local_dir}...")
 
-    for page in paginator.paginate(Bucket=bucket, Prefix=latest):
+    reports_prefix = f"{latest_prefix}reports/"
+    paginator = s3.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=bucket, Prefix=reports_prefix):
         for obj in page.get("Contents", []):
             key = obj["Key"]
-            rel = key[len(latest):]
+            rel = key[len(reports_prefix):]
             if not rel:
                 continue
             dest = local_dir / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             s3.download_file(bucket, key, str(dest))
+
+    # Also grab runner log
+    try:
+        log_dest = local_dir / "runner.log"
+        s3.download_file(bucket, f"{latest_prefix}runner.log", str(log_dest))
+    except ClientError:
+        pass
 
     print(f"\nResults downloaded to {local_dir}")
 

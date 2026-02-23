@@ -27,13 +27,14 @@ AGENT_PROVIDER = os.environ.get("AGENT_PROVIDER", "anthropic")
 # ---------------------------------------------------------------------------
 ANTHROPIC_MODEL = "claude-sonnet-4-6"
 ANTHROPIC_BETA = "computer-use-2025-11-24"
-ANTHROPIC_MAX_TOKENS = 4096
+ANTHROPIC_MAX_TOKENS = 16384
 
 # ---------------------------------------------------------------------------
 # OpenAI API
 # ---------------------------------------------------------------------------
 OPENAI_MODEL = "computer-use-preview"
-OPENAI_MAX_TOKENS = 4096
+OPENAI_ASSESSMENT_MODEL = "gpt-5.2"
+OPENAI_MAX_TOKENS = 16384
 
 # ---------------------------------------------------------------------------
 # Agent loop

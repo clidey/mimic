@@ -248,3 +248,7 @@ def _setup_infra(session: SessionConfig, project: ProjectConfig) -> None:
     # Always start the desktop sandbox
     if session.needs_desktop:
         docker_manager.start_desktop()
+        # Pre-launch Firefox + terminal for CUA models that struggle with app discovery
+        import os
+        if os.environ.get("AGENT_PROVIDER", "anthropic").lower() == "openai":
+            docker_manager.prepare_desktop()

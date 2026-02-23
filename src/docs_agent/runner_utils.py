@@ -39,17 +39,28 @@ def require(env: dict[str, str], key: str) -> str:
     return val
 
 
+_EXCLUDE_DIRS = {"reports", ".venv", "__pycache__", ".git", "node_modules"}
+
+
 def package_agent_code() -> Path:
     """Package the docs-agent repo into a temporary .tar.gz and return its path.
 
-    Caller is responsible for deleting the file after use.
+    Excludes reports/, .venv/, .git/, and other non-essential directories
+    to keep the archive small. Caller is responsible for deleting the file.
     """
     fd, tmp = tempfile.mkstemp(suffix=".tar.gz")
-    # mkstemp opens an fd we don't need — close it, tarfile will reopen by path
     import os
     os.close(fd)
     tar_path = Path(tmp)
+
+    def _filter(info: tarfile.TarInfo) -> tarfile.TarInfo | None:
+        parts = Path(info.name).parts
+        # parts[0] is the arcname "docs-agent", skip it for matching
+        if len(parts) > 1 and parts[1] in _EXCLUDE_DIRS:
+            return None
+        return info
+
     with tarfile.open(tar_path, "w:gz") as tar:
-        tar.add(str(AGENT_ROOT), arcname="docs-agent")
+        tar.add(str(AGENT_ROOT), arcname="docs-agent", filter=_filter)
     print(f"   Archive: {tar_path} ({tar_path.stat().st_size / 1024 / 1024:.1f} MB)")
     return tar_path

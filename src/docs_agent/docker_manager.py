@@ -108,6 +108,17 @@ def _wait_for_desktop(timeout: int = 30) -> None:
     raise RuntimeError("Desktop container did not become ready")
 
 
+def prepare_desktop() -> None:
+    """Pre-launch Firefox and a terminal so the CUA model doesn't have to find them.
+
+    Waits briefly for windows to appear so the first screenshot shows a usable desktop.
+    """
+    exec_in_desktop(f"DISPLAY={DISPLAY} xterm -geometry 100x30+0+400 &")
+    exec_in_desktop(f"DISPLAY={DISPLAY} firefox --no-remote about:blank &")
+    time.sleep(3)
+    log.info("Desktop prepared (terminal + Firefox launched)")
+
+
 # ---------------------------------------------------------------------------
 # Cleanup
 # ---------------------------------------------------------------------------

@@ -50,9 +50,17 @@ def vm_exists(project: str, zone: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def build_startup_script(env: dict[str, str]) -> str:
-    api_key = require(env, "ANTHROPIC_API_KEY")
+    provider = env.get("AGENT_PROVIDER", "anthropic")
     bucket = require(env, "GCS_BUCKET")
     agent_args = env.get("DOCS_AGENT_ARGS", "")
+
+    # Resolve the correct API key for the chosen provider
+    if provider == "openai":
+        api_key = require(env, "OPENAI_API_KEY")
+        key_export = f'export OPENAI_API_KEY="{api_key}"'
+    else:
+        api_key = require(env, "ANTHROPIC_API_KEY")
+        key_export = f'export ANTHROPIC_API_KEY="{api_key}"'
 
     return f"""\
 #!/bin/bash
@@ -72,9 +80,20 @@ echo "=== docs-agent startup $(date) ==="
 
 # Install Docker
 apt-get update -qq
-apt-get install -y -qq docker.io containerd curl
+apt-get install -y -qq docker.io docker-compose-v2 containerd curl
 systemctl start docker
 systemctl enable docker
+
+# Wait for Docker daemon to be fully ready
+echo "Waiting for Docker daemon..."
+for i in $(seq 1 30); do
+    if docker info >/dev/null 2>&1; then
+        echo "Docker is ready."
+        break
+    fi
+    echo "  attempt $i/30 — not ready, waiting 2s..."
+    sleep 2
+done
 
 # Install uv
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -91,7 +110,8 @@ cd /opt/docsagent/docs-agent
 uv sync
 
 # Run the agent
-export ANTHROPIC_API_KEY="{api_key}"
+export AGENT_PROVIDER="{provider}"
+{key_export}
 echo "=== Starting docs-agent $(date) ==="
 uv run docs-agent {agent_args} || true
 echo "=== docs-agent finished $(date) ==="
@@ -99,6 +119,7 @@ echo "=== docs-agent finished $(date) ==="
 # Upload results to GCS
 if [ -d reports ]; then
     gsutil -m cp -r reports/ gs://{bucket}/results/$TIMESTAMP/
+    echo "$TIMESTAMP" | gsutil cp - gs://{bucket}/latest.txt
     echo "Results uploaded to gs://{bucket}/results/$TIMESTAMP/"
 fi
 """
@@ -206,22 +227,28 @@ def cmd_wait(env: dict[str, str]) -> None:
             print(f"  VM status: {status} — waiting 30s...")
             time.sleep(30)
 
-    # Find latest results
+    # Find latest results via latest.txt pointer, fall back to listing
     print("\nChecking results...")
-    r = run(["gsutil", "ls", f"gs://{bucket}/results/"], check=False, capture=True)
-    if r.returncode != 0 or not r.stdout.strip():
-        print("No results found in GCS bucket.")
-        return
+    r = run(["gsutil", "cat", f"gs://{bucket}/latest.txt"], check=False, capture=True)
+    if r.returncode == 0 and r.stdout.strip():
+        ts = r.stdout.strip()
+        latest = f"gs://{bucket}/results/{ts}/"
+    else:
+        r = run(["gsutil", "ls", f"gs://{bucket}/results/"], check=False, capture=True)
+        if r.returncode != 0 or not r.stdout.strip():
+            print("No results found in GCS bucket.")
+            return
+        dirs = sorted(r.stdout.strip().splitlines())
+        latest = dirs[-1]
 
-    dirs = sorted(r.stdout.strip().splitlines())
-    latest = dirs[-1]
-    print(f"\nLatest results: {latest}")
+    print(f"Latest results: {latest}")
 
-    # Download
+    # Download reports + runner log
     local_dir = AGENT_ROOT / "reports" / "gcp-latest"
     local_dir.mkdir(parents=True, exist_ok=True)
     print(f"Downloading to {local_dir}...")
-    run(["gsutil", "-m", "cp", "-r", f"{latest}*", str(local_dir)])
+    run(["gsutil", "-m", "cp", "-r", f"{latest}reports/", str(local_dir)], check=False)
+    run(["gsutil", "cp", f"{latest}runner.log", str(local_dir / "runner.log")], check=False)
     print(f"\nResults downloaded to {local_dir}")
 
 

@@ -6,10 +6,44 @@ import logging
 
 import openai
 
-from docs_agent.config import OPENAI_MAX_TOKENS, OPENAI_MODEL
+from docs_agent.config import OPENAI_ASSESSMENT_MODEL, OPENAI_MAX_TOKENS, OPENAI_MODEL
 from docs_agent.providers import Provider, ProviderResponse, ToolCall, ToolResult
 
 log = logging.getLogger(__name__)
+
+_ASSESSMENT_PROMPT = """\
+You are evaluating a documentation QA test session. A computer-use agent was given
+a documentation page and asked to follow each instruction step by step on a live
+desktop. Below is the system prompt the agent received (which contains the page
+content), a log of every action the agent performed, and a final screenshot showing
+the desktop state when the session ended.
+
+Analyze the action log and screenshot, then produce a structured assessment.
+For each step in the documentation, determine whether it was completed based
+on the actions taken and the final screen state.
+
+You MUST produce your output in EXACTLY this plain-text format (not JSON):
+
+STATUS: PASSED | FAILED | SKIPPED
+STEPS:
+- [step description] : PASS | FAIL ([brief error if failed])
+- [step description] : PASS | FAIL ([brief error if failed])
+FAILURE_TYPE: independent | likely_cascading | unknown
+FAILURE_REASON: [one-line explanation if failed, or "n/a" if passed]
+
+Rules:
+- STATUS is PASSED only if ALL steps passed.
+- Each step line must start with "- " and end with ": PASS" or ": FAIL (reason)".
+- FAILURE_TYPE: "independent" if this page failed on its own, "likely_cascading"
+  if caused by a prior page's failure, "unknown" if unclear.
+- Be concise. One line per step.
+
+=== SYSTEM PROMPT (contains doc page) ===
+{system_prompt}
+
+=== ACTION LOG ===
+{action_log}
+"""
 
 
 class OpenAIProvider(Provider):
@@ -22,6 +56,8 @@ class OpenAIProvider(Provider):
         self._display_height: int = 800
         self._system: str = ""
         self._tools: list[dict] = []
+        self._action_log: list[str] = []
+        self._pending_safety_checks: list[dict] = []
 
     def setup(self, system_prompt: str, display_width: int, display_height: int) -> None:
         self._client = openai.OpenAI()
@@ -33,12 +69,11 @@ class OpenAIProvider(Provider):
                 "type": "computer_use_preview",
                 "display_width": display_width,
                 "display_height": display_height,
-                "environment": "ubuntu",
+                "environment": "linux",
             },
         ]
 
     def send_initial(self, user_message: str) -> ProviderResponse:
-        # OpenAI CUA requires an initial screenshot
         from docs_agent.docker_manager import take_screenshot
 
         b64 = take_screenshot()
@@ -52,9 +87,10 @@ class OpenAIProvider(Provider):
         response = self._client.responses.create(
             model=OPENAI_MODEL,
             instructions=self._system,
-            input=content,
+            input=[{"role": "user", "content": content}],
             tools=self._tools,
             truncation="auto",
+            reasoning={"summary": "concise"},
             max_output_tokens=OPENAI_MAX_TOKENS,
         )
         self._previous_response_id = response.id
@@ -69,7 +105,7 @@ class OpenAIProvider(Provider):
             items.append(output)
 
         if nudge_text:
-            items.append({"type": "input_text", "text": nudge_text})
+            items.append({"role": "user", "content": [{"type": "input_text", "text": nudge_text}]})
 
         response = self._client.responses.create(
             model=OPENAI_MODEL,
@@ -77,18 +113,54 @@ class OpenAIProvider(Provider):
             input=items,
             tools=self._tools,
             truncation="auto",
+            reasoning={"summary": "concise"},
             max_output_tokens=OPENAI_MAX_TOKENS,
         )
         self._previous_response_id = response.id
         return self._parse_response(response)
+
+    def generate_assessment(self, last_screenshot_b64: str | None = None) -> str | None:
+        """Call gpt-5.2 to produce a structured assessment from the CUA action log."""
+        if not self._action_log:
+            return None
+
+        log.info("Generating assessment via %s (%d actions logged)", OPENAI_ASSESSMENT_MODEL, len(self._action_log))
+
+        action_text = "\n".join(f"  {i+1}. {a}" for i, a in enumerate(self._action_log))
+        prompt = _ASSESSMENT_PROMPT.format(system_prompt=self._system, action_log=action_text)
+
+        messages: list[dict] = []
+        content: list[dict] = [{"type": "text", "text": prompt}]
+        if last_screenshot_b64:
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/png;base64,{last_screenshot_b64}"},
+            })
+        messages.append({"role": "user", "content": content})
+
+        try:
+            resp = self._client.chat.completions.create(
+                model=OPENAI_ASSESSMENT_MODEL,
+                messages=messages,
+                max_completion_tokens=4096,
+            )
+            text = resp.choices[0].message.content or ""
+            log.info("Assessment generated (%d chars)", len(text))
+            return text
+        except Exception as e:
+            log.warning("Assessment generation failed: %s", e)
+            return None
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
     def _build_output(self, result: ToolResult) -> dict:
-        """Build a computer_call_output item from a ToolResult."""
-        # Find the screenshot (base64 image) in the result content
+        """Build a computer_call_output item from a ToolResult.
+
+        Per the docs, the output field is a single image object, and
+        pending_safety_checks from the previous response must be acknowledged.
+        """
         screenshot_b64: str | None = None
         text_parts: list[str] = []
         for block in result.content:
@@ -101,20 +173,26 @@ class OpenAIProvider(Provider):
             "type": "computer_call_output",
             "call_id": result.call_id,
         }
+
+        # Acknowledge any pending safety checks from the previous response
+        if self._pending_safety_checks:
+            output["acknowledged_safety_checks"] = [
+                sc["id"] for sc in self._pending_safety_checks
+            ]
+            self._pending_safety_checks = []
+
         if screenshot_b64:
             output["output"] = {
-                "type": "input_image",
+                "type": "computer_screenshot",
                 "image_url": f"data:image/png;base64,{screenshot_b64}",
             }
-        # If there's only text (e.g. from bash execution routed through computer),
-        # we still need to provide a screenshot
         elif text_parts:
+            # Text-only result (e.g. bash output) — still need a screenshot
             from docs_agent.docker_manager import take_screenshot
-
             fresh_b64 = take_screenshot()
             if fresh_b64:
                 output["output"] = {
-                    "type": "input_image",
+                    "type": "computer_screenshot",
                     "image_url": f"data:image/png;base64,{fresh_b64}",
                 }
 
@@ -134,10 +212,15 @@ class OpenAIProvider(Provider):
                     name=normalized["tool_name"],
                     input=normalized["input"],
                 ))
-                # Collect pending safety checks
+                self._action_log.append(self._describe_action(item.action))
                 for check in getattr(item, "pending_safety_checks", []):
                     log.info("OpenAI safety check: %s — %s", check.code, check.message)
                     pending_safety.append({"id": check.id, "code": check.code, "message": check.message})
+            elif item.type == "reasoning":
+                summary = getattr(item, "summary", None)
+                if summary:
+                    for s in summary:
+                        log.debug("CUA reasoning: %s", getattr(s, "text", str(s))[:300])
             elif item.type == "text":
                 text_parts.append(item.text)
 
@@ -148,8 +231,10 @@ class OpenAIProvider(Provider):
             )
 
         done = not tool_calls
+        if done and text_parts:
+            log.info("CUA model finished with text: %s", " | ".join(t[:200] for t in text_parts))
 
-        # Store safety checks to acknowledge in next request
+        # Store safety checks — will be acknowledged in the next _build_output call
         self._pending_safety_checks = pending_safety
 
         return ProviderResponse(
@@ -159,12 +244,39 @@ class OpenAIProvider(Provider):
             done=done,
         )
 
-    def _normalize_action(self, action: object) -> dict:
-        """Map an OpenAI CUA action to an Anthropic-style tool name + input dict.
+    @staticmethod
+    def _describe_action(action: object) -> str:
+        """Produce a human-readable one-liner describing a CUA action."""
+        t = action.type
+        if t == "click":
+            return f"click({action.button}) at ({action.x}, {action.y})"
+        if t == "double_click":
+            return f"double_click at ({action.x}, {action.y})"
+        if t == "type":
+            text = action.text
+            if len(text) > 80:
+                text = text[:77] + "..."
+            return f'type "{text}"'
+        if t == "keypress":
+            keys = action.keys if hasattr(action, "keys") else []
+            return f"keypress {'+'.join(keys)}"
+        if t == "scroll":
+            return f"scroll at ({action.x}, {action.y}) dy={getattr(action, 'scroll_y', 0)}"
+        if t == "screenshot":
+            return "screenshot"
+        if t == "drag":
+            path = action.path
+            start = path[0] if path else None
+            end = path[-1] if len(path) > 1 else start
+            return f"drag ({getattr(start, 'x', '?')},{getattr(start, 'y', '?')}) -> ({getattr(end, 'x', '?')},{getattr(end, 'y', '?')})"
+        if t == "wait":
+            return f"wait {getattr(action, 'duration', '?')}s"
+        if t == "move":
+            return f"move to ({action.x}, {action.y})"
+        return f"{t} (unknown)"
 
-        This lets the existing _dispatch_tool() in agent.py handle all actions
-        without any changes.
-        """
+    def _normalize_action(self, action: object) -> dict:
+        """Map an OpenAI CUA action to an Anthropic-style tool name + input dict."""
         action_type = action.type
 
         if action_type == "click":
@@ -188,7 +300,6 @@ class OpenAIProvider(Provider):
             }
 
         if action_type == "keypress":
-            # OpenAI sends list of keys like ["ctrl", "c"], Anthropic expects "ctrl+c"
             keys = action.keys if hasattr(action, "keys") else []
             key_str = "+".join(keys)
             return {
@@ -197,7 +308,6 @@ class OpenAIProvider(Provider):
             }
 
         if action_type == "scroll":
-            # OpenAI gives pixel deltas; convert to xdotool click counts
             scroll_x = getattr(action, "scroll_x", 0) or 0
             scroll_y = getattr(action, "scroll_y", 0) or 0
             if abs(scroll_y) >= abs(scroll_x):
@@ -218,14 +328,18 @@ class OpenAIProvider(Provider):
 
         if action_type == "drag":
             path = action.path
-            start = path[0] if path else {"x": 0, "y": 0}
+            start = path[0] if path else None
             end = path[-1] if len(path) > 1 else start
+            sx = getattr(start, "x", 0) if start else 0
+            sy = getattr(start, "y", 0) if start else 0
+            ex = getattr(end, "x", 0) if end else 0
+            ey = getattr(end, "y", 0) if end else 0
             return {
                 "tool_name": "computer",
                 "input": {
                     "action": "left_click_drag",
-                    "start_coordinate": [start["x"], start["y"]],
-                    "coordinate": [end["x"], end["y"]],
+                    "start_coordinate": [sx, sy],
+                    "coordinate": [ex, ey],
                 },
             }
 
@@ -247,7 +361,6 @@ class OpenAIProvider(Provider):
                 "input": {"action": "mouse_move", "coordinate": [action.x, action.y]},
             }
 
-        # Fallback — pass through as-is and let _dispatch_tool handle the error
         log.warning("Unknown OpenAI CUA action type: %s", action_type)
         return {
             "tool_name": "computer",

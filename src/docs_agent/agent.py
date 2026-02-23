@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
 
@@ -32,12 +33,28 @@ FAILURE_REASON: [explanation if failed]"""
 # System prompt
 # ---------------------------------------------------------------------------
 
+def _is_openai_provider() -> bool:
+    return os.environ.get("AGENT_PROVIDER", "anthropic").lower() == "openai"
+
+
 def build_system_prompt(
     page: Page,
     session_state: SessionState,
     environment: str,
     docs_url: str | None = None,
 ) -> str:
+    if _is_openai_provider():
+        return _build_cua_prompt(page, session_state, environment, docs_url)
+    return _build_anthropic_prompt(page, session_state, environment, docs_url)
+
+
+def _build_anthropic_prompt(
+    page: Page,
+    session_state: SessionState,
+    environment: str,
+    docs_url: str | None = None,
+) -> str:
+    """System prompt for Anthropic Claude — full assessment format included."""
     failures_json = json.dumps(session_state.to_context(), indent=2) if session_state.failures else "[]"
 
     env_block = ""
@@ -49,9 +66,7 @@ def build_system_prompt(
     has_content = bool(page.content.strip())
     browse_url = f"{docs_url.rstrip('/')}/{page.slug}" if docs_url else None
 
-    # Build the full prompt based on what's available
     if has_content and browse_url:
-        # Content provided AND a live URL — use content as reference, URL as live site
         body = f"""\
 INSTRUCTIONS:
 1. Read the documentation page content below carefully.
@@ -80,7 +95,6 @@ DOCUMENTATION PAGE: {page.filename}
 {page.content}"""
 
     elif browse_url:
-        # URL-browse mode — no content, LLM reads from the browser
         body = f"""\
 INSTRUCTIONS:
 1. Open Firefox and navigate to {browse_url}
@@ -108,7 +122,6 @@ DOCUMENTATION PAGE: {page.slug}
 (Navigate to {browse_url} to read and test this page)"""
 
     else:
-        # Content-only mode (original behavior)
         body = f"""\
 INSTRUCTIONS:
 1. Read the documentation page content below carefully.
@@ -145,6 +158,75 @@ of turns. If you are notified that you are running low, stop testing immediately
 and produce your assessment based on what you have observed so far.
 
 {body}
+"""
+
+
+def _build_cua_prompt(
+    page: Page,
+    session_state: SessionState,
+    environment: str,
+    docs_url: str | None = None,
+) -> str:
+    """System prompt for OpenAI CUA — action-oriented, no assessment format.
+
+    Key differences from the Anthropic prompt:
+    - Explicit desktop navigation guidance (how to open Firefox, terminal)
+    - No structured assessment format (gpt-5.2 handles that separately)
+    - Shorter, more directive — CUA responds better to clear action instructions
+    """
+    has_content = bool(page.content.strip())
+    browse_url = f"{docs_url.rstrip('/')}/{page.slug}" if docs_url else None
+
+    env_lines = ""
+    if environment.strip():
+        env_lines = environment
+
+    if has_content and browse_url:
+        task_block = f"""\
+TASK: Test the documentation page below by following every instruction on a live desktop.
+
+The live page is also at {browse_url} — open it in Firefox to follow along.
+
+DOCUMENTATION PAGE: {page.filename}
+
+{page.content}"""
+
+    elif browse_url:
+        task_block = f"""\
+TASK: Navigate to {browse_url} in Firefox, read the documentation page, and
+follow every instruction on a live desktop.
+
+DOCUMENTATION PAGE: {page.slug}"""
+
+    else:
+        task_block = f"""\
+TASK: Test the documentation page below by following every instruction on a live desktop.
+
+DOCUMENTATION PAGE: {page.filename}
+
+{page.content}"""
+
+    return f"""\
+You are a documentation QA tester on a Linux (Ubuntu) desktop.
+Your job is to follow every step in the documentation page exactly.
+
+DESKTOP ENVIRONMENT:
+- Firefox is ALREADY OPEN on the desktop — just click its window and use the address bar.
+- A terminal (xterm) is ALREADY OPEN — click it and type commands directly.
+- Do NOT try to launch new applications. Use the ones already on screen.
+- Do NOT use Alt+F2 or application menus. Everything you need is already running.
+{env_lines}
+
+HOW TO WORK:
+1. Click the Firefox window and type the URL in the address bar to navigate.
+   To run commands, click the terminal window and type them.
+2. Follow EVERY step in the documentation. Execute commands, click UI elements,
+   fill in forms — do exactly what the docs tell a user to do.
+3. After each action, take a screenshot to verify it worked before moving on.
+4. If something fails, try once more, then move to the next step.
+5. Keep going until you have attempted every step in the documentation.
+
+{task_block}
 """
 
 
@@ -268,6 +350,25 @@ def _dispatch_tool(tool_name: str, tool_input: dict) -> list[dict]:
 # Agent loop
 # ---------------------------------------------------------------------------
 
+def _initial_message(page: Page | None = None) -> str:
+    """Build the first user message — different for CUA vs Anthropic."""
+    if _is_openai_provider() and page:
+        # CUA model needs the task steps in the user message, not just
+        # the system prompt — it treats instructions as background context
+        # but the user message as the actual thing to do.
+        return (
+            f"Here is your task. Follow these documentation steps on the desktop:\n\n"
+            f"{page.content}\n\n"
+            f"Start now with step 1. Firefox and a terminal are already open on screen. "
+            f"Do NOT stop or ask for confirmation — complete ALL steps above autonomously. "
+            f"After each action, take a screenshot and continue to the next step."
+        )
+    return (
+        "Please begin testing this documentation page now. "
+        "Start by taking a screenshot to see the current desktop state."
+    )
+
+
 def test_page(
     page: Page,
     session_state: SessionState,
@@ -289,10 +390,7 @@ def test_page(
 
     try:
         api_calls += 1
-        response = provider.send_initial(
-            "Please begin testing this documentation page now. "
-            "Start by taking a screenshot to see the current desktop state."
-        )
+        response = provider.send_initial(_initial_message(page))
         total_tokens += response.tokens_used
         final_text_parts.extend(response.text_parts)
 
@@ -338,6 +436,16 @@ def test_page(
             hit_limit = True
             log.warning("Page %s — hit max iterations (%d)", page.slug, MAX_AGENT_ITERATIONS)
     finally:
+        # If the CUA model never produced a structured assessment, ask a
+        # text model to generate one from the action log + final screenshot.
+        final_text = "\n".join(final_text_parts)
+        if not _STATUS_RE.search(final_text):
+            log.info("Page %s — no assessment from CUA model, trying follow-up", page.slug)
+            last_b64 = take_screenshot()
+            assessment = provider.generate_assessment(last_screenshot_b64=last_b64)
+            if assessment:
+                final_text_parts.append(assessment)
+
         provider.close()
         stop_recording()
 

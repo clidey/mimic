@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import os
 from pathlib import Path
 
 from docs_agent.models import FailureType, PageResult, PageStatus, StepResult
@@ -78,6 +79,17 @@ def _build_summary(
     w(f"| Duration | {_fmt_duration(total_duration)} |")
     w(f"| API calls | {total_api_calls} |")
     w(f"| Tokens used | {total_tokens:,} |")
+
+    provider = os.environ.get("AGENT_PROVIDER", "anthropic")
+    if provider == "anthropic":
+        from docs_agent.config import ANTHROPIC_MODEL
+        w(f"| Provider | {provider} ({ANTHROPIC_MODEL}) |")
+    elif provider == "openai":
+        from docs_agent.config import OPENAI_MODEL, OPENAI_ASSESSMENT_MODEL
+        w(f"| Provider | {provider} ({OPENAI_MODEL} + {OPENAI_ASSESSMENT_MODEL}) |")
+    else:
+        w(f"| Provider | {provider} |")
+
     w("")
 
     if failed:
