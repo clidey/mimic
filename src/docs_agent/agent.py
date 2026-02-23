@@ -7,13 +7,7 @@ import logging
 import re
 import time
 
-import anthropic
-
 from docs_agent.config import (
-    CLAUDE_BETA,
-    CLAUDE_MAX_TOKENS,
-    CLAUDE_MODEL,
-    DISPLAY,
     DISPLAY_HEIGHT,
     DISPLAY_WIDTH,
     MAX_AGENT_ITERATIONS,
@@ -28,6 +22,7 @@ from docs_agent.config import (
 )
 from docs_agent.docker_manager import exec_in_desktop, start_recording, stop_recording, take_screenshot, xdotool
 from docs_agent.models import FailureType, Page, PageResult, PageStatus, SessionState, StepResult
+from docs_agent.providers import ToolResult, get_provider
 
 log = logging.getLogger(__name__)
 
@@ -85,29 +80,6 @@ DOCUMENTATION PAGE: {page.filename}
 
 {page.content}
 """
-
-
-# ---------------------------------------------------------------------------
-# Tool definitions for the API
-# ---------------------------------------------------------------------------
-
-TOOLS = [
-    {
-        "type": "computer_20251124",
-        "name": "computer",
-        "display_width_px": DISPLAY_WIDTH,
-        "display_height_px": DISPLAY_HEIGHT,
-        "display_number": 1,
-    },
-    {
-        "type": "bash_20250124",
-        "name": "bash",
-    },
-    {
-        "type": "text_editor_20250728",
-        "name": "str_replace_based_edit_tool",
-    },
-]
 
 
 # ---------------------------------------------------------------------------
@@ -232,89 +204,71 @@ def _dispatch_tool(tool_name: str, tool_input: dict) -> list[dict]:
 
 def test_page(page: Page, session_state: SessionState) -> PageResult:
     """Run the computer-use agent on a single documentation page."""
-    client = anthropic.Anthropic()
+    provider = get_provider()
     system = build_system_prompt(page, session_state)
-    messages: list[dict] = [{"role": "user", "content": "Please begin testing this documentation page now. Start by taking a screenshot to see the current desktop state."}]
+    provider.setup(system, DISPLAY_WIDTH, DISPLAY_HEIGHT)
 
     total_tokens = 0
     api_calls = 0
     start = time.monotonic()
-
     hit_limit = False
+    final_text_parts: list[str] = []
 
     start_recording()
 
-    for iteration in range(MAX_AGENT_ITERATIONS):
-        log.info("Page %s — iteration %d/%d", page.slug, iteration + 1, MAX_AGENT_ITERATIONS)
+    try:
         api_calls += 1
-
-        response = client.beta.messages.create(
-            model=CLAUDE_MODEL,
-            max_tokens=CLAUDE_MAX_TOKENS,
-            system=system,
-            messages=messages,
-            tools=TOOLS,
-            betas=[CLAUDE_BETA],
+        response = provider.send_initial(
+            "Please begin testing this documentation page now. "
+            "Start by taking a screenshot to see the current desktop state."
         )
+        total_tokens += response.tokens_used
+        final_text_parts.extend(response.text_parts)
 
-        total_tokens += response.usage.input_tokens + response.usage.output_tokens
+        for iteration in range(MAX_AGENT_ITERATIONS):
+            log.info("Page %s — iteration %d/%d", page.slug, iteration + 1, MAX_AGENT_ITERATIONS)
 
-        # Collect tool calls and text from response
-        tool_uses = []
-        final_text_parts = []
-        for block in response.content:
-            if block.type == "tool_use":
-                tool_uses.append(block)
-            elif block.type == "text":
-                final_text_parts.append(block.text)
+            if response.done:
+                break
 
-        # Append assistant message
-        messages.append({"role": "assistant", "content": response.content})
+            # Execute tools and build results
+            tool_results: list[ToolResult] = []
+            for tc in response.tool_calls:
+                log.debug("Tool call: %s(%s)", tc.name, json.dumps(tc.input)[:200])
+                try:
+                    result_content = _dispatch_tool(tc.name, dict(tc.input))
+                except Exception as e:
+                    log.warning("Tool %s failed: %s", tc.name, e)
+                    result_content = [{"type": "text", "text": f"Tool execution failed: {type(e).__name__}: {e}"}]
+                is_error = (
+                    len(result_content) == 1
+                    and result_content[0].get("text", "").startswith("Tool execution failed")
+                )
+                tool_results.append(ToolResult(call_id=tc.id, content=result_content, is_error=is_error))
 
-        # If no tool calls, the agent is done
-        if not tool_uses:
-            break
-
-        # Execute tools and build results
-        tool_results = []
-        for tu in tool_uses:
-            log.debug("Tool call: %s(%s)", tu.name, json.dumps(tu.input)[:200])
-            try:
-                result_content = _dispatch_tool(tu.name, dict(tu.input))
-            except Exception as e:
-                log.warning("Tool %s failed: %s", tu.name, e)
-                result_content = [{"type": "text", "text": f"Tool execution failed: {type(e).__name__}: {e}"}]
-            tool_results.append({
-                "type": "tool_result",
-                "tool_use_id": tu.id,
-                "content": result_content,
-                "is_error": isinstance(result_content, list) and len(result_content) == 1 and result_content[0].get("text", "").startswith("Tool execution failed"),
-            })
-
-        # Inject wrap-up nudge when approaching the limit
-        remaining = MAX_AGENT_ITERATIONS - iteration - 1
-        if iteration + 1 == WRAPUP_THRESHOLD:
-            log.info("Page %s — injecting wrap-up nudge (%d turns remaining)", page.slug, remaining)
-            tool_results.append({
-                "type": "text",
-                "text": (
+            # Build wrap-up nudge if approaching the limit
+            nudge: str | None = None
+            remaining = MAX_AGENT_ITERATIONS - iteration - 1
+            if iteration + 1 == WRAPUP_THRESHOLD:
+                log.info("Page %s — injecting wrap-up nudge (%d turns remaining)", page.slug, remaining)
+                nudge = (
                     f"IMPORTANT: You have {remaining} turns remaining out of {MAX_AGENT_ITERATIONS}. "
                     "You are running low on turns. Finish your current step, then STOP testing and "
                     "immediately produce your structured assessment (STATUS/STEPS/FAILURE_TYPE/FAILURE_REASON) "
                     "based on what you have tested so far. Do NOT use any more tool calls after writing "
                     "the assessment."
-                ),
-            })
+                )
 
-        messages.append({"role": "user", "content": tool_results})
-
-        if response.stop_reason == "end_turn":
-            break
-    else:
-        hit_limit = True
-        log.warning("Page %s — hit max iterations (%d)", page.slug, MAX_AGENT_ITERATIONS)
-
-    stop_recording()
+            api_calls += 1
+            response = provider.send_tool_results(tool_results, nudge)
+            total_tokens += response.tokens_used
+            final_text_parts.extend(response.text_parts)
+        else:
+            hit_limit = True
+            log.warning("Page %s — hit max iterations (%d)", page.slug, MAX_AGENT_ITERATIONS)
+    finally:
+        provider.close()
+        stop_recording()
 
     duration = time.monotonic() - start
     final_text = "\n".join(final_text_parts)

@@ -2,9 +2,9 @@
 """Launch docs-agent on a GCP spot VM.
 
 Usage:
-    python run_on_gcp.py              # launch and exit
-    python run_on_gcp.py --wait       # launch, poll, download results when done
-    python run_on_gcp.py --cleanup    # delete the VM if it's still running
+    docs-agent-gcp              # launch and exit
+    docs-agent-gcp --wait       # launch, poll, download results when done
+    docs-agent-gcp --cleanup    # delete the VM if it's still running
 """
 
 from __future__ import annotations
@@ -12,43 +12,13 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
-import tarfile
 import tempfile
 import time
-from io import BytesIO
 from pathlib import Path
 
-# docs-agent root: two levels up from src/docs_agent/gcp.py
-AGENT_ROOT = Path(__file__).resolve().parent.parent.parent
+from docs_agent.runner_utils import AGENT_ROOT, load_env, package_agent_code, require
+
 VM_NAME = "docsagent-runner"
-
-
-# ---------------------------------------------------------------------------
-# .env parser
-# ---------------------------------------------------------------------------
-
-def load_env(path: Path = AGENT_ROOT / ".env") -> dict[str, str]:
-    if not path.exists():
-        print(f"Error: {path} not found. Copy .env.example to .env and fill in your values.")
-        sys.exit(1)
-    env: dict[str, str] = {}
-    for line in path.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        env[key.strip()] = value.strip()
-    return env
-
-
-def require(env: dict[str, str], key: str) -> str:
-    val = env.get(key, "")
-    if not val:
-        print(f"Error: {key} is required in .env")
-        sys.exit(1)
-    return val
 
 
 # ---------------------------------------------------------------------------
@@ -62,6 +32,16 @@ def run(cmd: list[str], *, check: bool = True, capture: bool = False) -> subproc
 
 def gcloud_ok() -> bool:
     r = run(["gcloud", "version"], check=False, capture=True)
+    return r.returncode == 0
+
+
+def vm_exists(project: str, zone: str) -> bool:
+    """Check whether our VM currently exists (any state)."""
+    r = run(
+        ["gcloud", "compute", "instances", "describe", VM_NAME,
+         "--project", project, "--zone", zone, "--format", "value(status)"],
+        check=False, capture=True,
+    )
     return r.returncode == 0
 
 
@@ -141,15 +121,14 @@ def cmd_launch(env: dict[str, str]) -> None:
         sys.exit(1)
 
     # Clean up any existing VM from a previous run
-    run(["gcloud", "compute", "instances", "delete", VM_NAME,
-         "--project", project, "--zone", zone, "--quiet"], check=False)
+    if vm_exists(project, zone):
+        print(f"Deleting existing VM '{VM_NAME}'...")
+        run(["gcloud", "compute", "instances", "delete", VM_NAME,
+             "--project", project, "--zone", zone, "--quiet"], check=False)
 
     # Package the docs-agent code
     print("\n1. Packaging docs-agent code...")
-    tar_path = Path(tempfile.mktemp(suffix=".tar.gz"))
-    with tarfile.open(tar_path, "w:gz") as tar:
-        tar.add(str(AGENT_ROOT), arcname="docs-agent")
-    print(f"   Archive: {tar_path} ({tar_path.stat().st_size / 1024 / 1024:.1f} MB)")
+    tar_path = package_agent_code()
 
     # Upload to GCS
     print(f"\n2. Uploading to gs://{bucket}/docsagent-code.tar.gz...")
@@ -159,7 +138,10 @@ def cmd_launch(env: dict[str, str]) -> None:
     # Write startup script to temp file
     print("\n3. Creating startup script...")
     startup = build_startup_script(env)
-    startup_path = Path(tempfile.mktemp(suffix=".sh"))
+    fd, tmp = tempfile.mkstemp(suffix=".sh")
+    import os
+    os.close(fd)
+    startup_path = Path(tmp)
     startup_path.write_text(startup)
 
     # Create the VM
@@ -204,25 +186,28 @@ def cmd_wait(env: dict[str, str]) -> None:
     zone = env.get("GCP_ZONE", "us-central1-a")
     bucket = require(env, "GCS_BUCKET")
 
-    print(f"Waiting for VM '{VM_NAME}' to finish...")
-    while True:
-        # Check if VM still exists
-        r = run(
-            ["gcloud", "compute", "instances", "describe", VM_NAME,
-             "--project", project, "--zone", zone, "--format", "value(status)"],
-            check=False, capture=True,
-        )
-        if r.returncode != 0:
-            print("VM no longer exists — it shut itself down. Checking results...")
-            break
-        status = r.stdout.strip()
-        if status == "TERMINATED":
-            print("VM terminated. Checking results...")
-            break
-        print(f"  VM status: {status} — waiting 30s...")
-        time.sleep(30)
+    if not vm_exists(project, zone):
+        print(f"VM '{VM_NAME}' not found — it may have already shut down.")
+    else:
+        print(f"Waiting for VM '{VM_NAME}' to finish...")
+        while True:
+            r = run(
+                ["gcloud", "compute", "instances", "describe", VM_NAME,
+                 "--project", project, "--zone", zone, "--format", "value(status)"],
+                check=False, capture=True,
+            )
+            if r.returncode != 0:
+                print("VM no longer exists — it shut itself down.")
+                break
+            status = r.stdout.strip()
+            if status in ("TERMINATED", "STOPPED"):
+                print(f"VM {status.lower()}.")
+                break
+            print(f"  VM status: {status} — waiting 30s...")
+            time.sleep(30)
 
     # Find latest results
+    print("\nChecking results...")
     r = run(["gsutil", "ls", f"gs://{bucket}/results/"], check=False, capture=True)
     if r.returncode != 0 or not r.stdout.strip():
         print("No results found in GCS bucket.")
@@ -243,6 +228,11 @@ def cmd_wait(env: dict[str, str]) -> None:
 def cmd_cleanup(env: dict[str, str]) -> None:
     project = require(env, "GCP_PROJECT")
     zone = env.get("GCP_ZONE", "us-central1-a")
+
+    if not vm_exists(project, zone):
+        print(f"No VM '{VM_NAME}' found.")
+        return
+
     print(f"Deleting VM '{VM_NAME}'...")
     run(["gcloud", "compute", "instances", "delete", VM_NAME,
          "--project", project, "--zone", zone, "--quiet"], check=False)

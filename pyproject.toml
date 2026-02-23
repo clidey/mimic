@@ -3,11 +3,12 @@ name = "whodb-docs-agent"
 version = "0.1.0"
 description = "WhoDB documentation QA agent — tests every doc page via computer-use"
 requires-python = ">=3.10"
-dependencies = ["anthropic>=0.82.0"]
+dependencies = ["anthropic>=0.82.0", "boto3>=1.35.0", "openai>=1.60.0"]
 
 [project.scripts]
 docs-agent = "docs_agent.__main__:main"
 docs-agent-gcp = "docs_agent.gcp:main"
+docs-agent-aws = "docs_agent.aws:main"
 
 [build-system]
 requires = ["hatchling"]

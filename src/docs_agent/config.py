@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from docs_agent.models import SessionConfig
 
 # ---------------------------------------------------------------------------
@@ -34,11 +36,26 @@ DISPLAY_HEIGHT = 800
 DISPLAY = ":1"
 
 # ---------------------------------------------------------------------------
-# Claude API
+# Provider selection
 # ---------------------------------------------------------------------------
-CLAUDE_MODEL = "claude-sonnet-4-6"
-CLAUDE_BETA = "computer-use-2025-11-24"
-CLAUDE_MAX_TOKENS = 4096
+AGENT_PROVIDER = os.environ.get("AGENT_PROVIDER", "anthropic")
+
+# ---------------------------------------------------------------------------
+# Anthropic API
+# ---------------------------------------------------------------------------
+ANTHROPIC_MODEL = "claude-sonnet-4-6"
+ANTHROPIC_BETA = "computer-use-2025-11-24"
+ANTHROPIC_MAX_TOKENS = 4096
+
+# ---------------------------------------------------------------------------
+# OpenAI API
+# ---------------------------------------------------------------------------
+OPENAI_MODEL = "computer-use-preview"
+OPENAI_MAX_TOKENS = 4096
+
+# ---------------------------------------------------------------------------
+# Agent loop
+# ---------------------------------------------------------------------------
 MAX_AGENT_ITERATIONS = 40
 WRAPUP_THRESHOLD = 30  # inject wrap-up nudge at this iteration
 
