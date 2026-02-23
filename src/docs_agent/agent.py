@@ -19,12 +19,25 @@ from docs_agent.providers import ToolResult, get_provider
 
 log = logging.getLogger(__name__)
 
+_ASSESSMENT_FORMAT = """\
+STATUS: PASSED | FAILED | SKIPPED
+STEPS:
+- [step description] : PASS | FAIL ([error if failed])
+- [step description] : PASS | FAIL ([error if failed])
+FAILURE_TYPE: independent | likely_cascading | unknown
+FAILURE_REASON: [explanation if failed]"""
+
 
 # ---------------------------------------------------------------------------
 # System prompt
 # ---------------------------------------------------------------------------
 
-def build_system_prompt(page: Page, session_state: SessionState, environment: str) -> str:
+def build_system_prompt(
+    page: Page,
+    session_state: SessionState,
+    environment: str,
+    docs_url: str | None = None,
+) -> str:
     failures_json = json.dumps(session_state.to_context(), indent=2) if session_state.failures else "[]"
 
     env_block = ""
@@ -33,15 +46,70 @@ def build_system_prompt(page: Page, session_state: SessionState, environment: st
     else:
         env_block = "\nENVIRONMENT:\n- You are on an Ubuntu desktop with Firefox, a terminal, and standard CLI tools.\n"
 
-    return f"""\
-You are a documentation QA agent. Your job is to test a documentation page by
-following every instruction exactly as described, as if you were a new user.
-{env_block}
-TURN BUDGET: You have at most {MAX_AGENT_ITERATIONS} tool-use turns to complete this test.
-Plan accordingly. You MUST produce your structured assessment before running out
-of turns. If you are notified that you are running low, stop testing immediately
-and produce your assessment based on what you have observed so far.
+    has_content = bool(page.content.strip())
+    browse_url = f"{docs_url.rstrip('/')}/{page.slug}" if docs_url else None
 
+    # Build the full prompt based on what's available
+    if has_content and browse_url:
+        # Content provided AND a live URL — use content as reference, URL as live site
+        body = f"""\
+INSTRUCTIONS:
+1. Read the documentation page content below carefully.
+2. The live page is also available at {browse_url} — open it in Firefox.
+3. Follow EVERY instruction, step by step. Do NOT skip steps. Open browsers,
+   click UI elements, run terminal commands — do exactly what the docs say a
+   user should do.
+4. After each step, take a screenshot to verify the result.
+5. If a step involves cloud services (AWS, GCP, Azure) that cannot be tested
+   locally, note it as skipped but continue with remaining steps.
+6. When you have finished testing all steps (or when told to wrap up), you MUST
+   provide your assessment in this exact format. This is critical — the
+   assessment MUST appear in your final message:
+
+{_ASSESSMENT_FORMAT}
+
+PREVIOUS FAILURES IN THIS SESSION (for cascading-failure context):
+{failures_json}
+
+If your failure seems caused by a prior failure above, mark FAILURE_TYPE as likely_cascading.
+
+---
+
+DOCUMENTATION PAGE: {page.filename}
+
+{page.content}"""
+
+    elif browse_url:
+        # URL-browse mode — no content, LLM reads from the browser
+        body = f"""\
+INSTRUCTIONS:
+1. Open Firefox and navigate to {browse_url}
+2. Read the documentation page in the browser.
+3. Follow EVERY instruction on the page, step by step. Do NOT skip steps.
+   Click UI elements, run terminal commands — do exactly what the docs say
+   a user should do.
+4. After each step, take a screenshot to verify the result.
+5. If a step involves cloud services (AWS, GCP, Azure) that cannot be tested
+   locally, note it as skipped but continue with remaining steps.
+6. When you have finished testing all steps (or when told to wrap up), you MUST
+   provide your assessment in this exact format. This is critical — the
+   assessment MUST appear in your final message:
+
+{_ASSESSMENT_FORMAT}
+
+PREVIOUS FAILURES IN THIS SESSION (for cascading-failure context):
+{failures_json}
+
+If your failure seems caused by a prior failure above, mark FAILURE_TYPE as likely_cascading.
+
+---
+
+DOCUMENTATION PAGE: {page.slug}
+(Navigate to {browse_url} to read and test this page)"""
+
+    else:
+        # Content-only mode (original behavior)
+        body = f"""\
 INSTRUCTIONS:
 1. Read the documentation page content below carefully.
 2. Follow EVERY instruction, step by step. Do NOT skip steps. Open browsers,
@@ -54,12 +122,7 @@ INSTRUCTIONS:
    provide your assessment in this exact format. This is critical — the
    assessment MUST appear in your final message:
 
-STATUS: PASSED | FAILED | SKIPPED
-STEPS:
-- [step description] : PASS | FAIL ([error if failed])
-- [step description] : PASS | FAIL ([error if failed])
-FAILURE_TYPE: independent | likely_cascading | unknown
-FAILURE_REASON: [explanation if failed]
+{_ASSESSMENT_FORMAT}
 
 PREVIOUS FAILURES IN THIS SESSION (for cascading-failure context):
 {failures_json}
@@ -70,7 +133,18 @@ If your failure seems caused by a prior failure above, mark FAILURE_TYPE as like
 
 DOCUMENTATION PAGE: {page.filename}
 
-{page.content}
+{page.content}"""
+
+    return f"""\
+You are a documentation QA agent. Your job is to test a documentation page by
+following every instruction exactly as described, as if you were a new user.
+{env_block}
+TURN BUDGET: You have at most {MAX_AGENT_ITERATIONS} tool-use turns to complete this test.
+Plan accordingly. You MUST produce your structured assessment before running out
+of turns. If you are notified that you are running low, stop testing immediately
+and produce your assessment based on what you have observed so far.
+
+{body}
 """
 
 
@@ -194,10 +268,15 @@ def _dispatch_tool(tool_name: str, tool_input: dict) -> list[dict]:
 # Agent loop
 # ---------------------------------------------------------------------------
 
-def test_page(page: Page, session_state: SessionState, environment: str) -> PageResult:
+def test_page(
+    page: Page,
+    session_state: SessionState,
+    environment: str,
+    docs_url: str | None = None,
+) -> PageResult:
     """Run the computer-use agent on a single documentation page."""
     provider = get_provider()
-    system = build_system_prompt(page, session_state, environment)
+    system = build_system_prompt(page, session_state, environment, docs_url=docs_url)
     provider.setup(system, DISPLAY_WIDTH, DISPLAY_HEIGHT)
 
     total_tokens = 0

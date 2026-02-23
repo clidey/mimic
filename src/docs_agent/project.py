@@ -5,6 +5,7 @@ from __future__ import annotations
 import fnmatch
 import logging
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 
 import yaml
@@ -16,10 +17,19 @@ log = logging.getLogger(__name__)
 PROJECT_FILENAMES = ("qa-project.yaml", "qa-project.yml")
 
 
+class DocsMode(Enum):
+    FILE = "file"            # Concatenated file (e.g. llms.txt)
+    DIRECTORY = "directory"  # Directory of individual doc files
+    URL = "url"              # Remote fetchable file (same format as FILE)
+    BROWSE = "browse"        # LLM navigates to live URLs in browser
+
+
 @dataclass
 class ProjectConfig:
     name: str
-    docs_source: Path
+    docs_source: Path | None           # Local file or directory (FILE, DIRECTORY modes)
+    docs_url: str | None               # Remote file URL (URL) or browse base URL (BROWSE)
+    docs_mode: DocsMode
     environment: str
     sessions: list[SessionConfig] | None  # None = auto-group by directory prefix
     project_dir: Path
@@ -42,12 +52,12 @@ def load_project(path: Path | None = None) -> ProjectConfig:
 
     name = raw.get("name", project_dir.name)
     docs_rel = raw.get("docs")
-    if not docs_rel:
-        raise ValueError(f"{yaml_path}: 'docs' field is required")
+    docs_url_raw = raw.get("docs_url")
 
-    docs_source = (project_dir / docs_rel).resolve()
-    if not docs_source.exists():
-        raise FileNotFoundError(f"Docs file not found: {docs_source}")
+    # Determine docs mode, source, and URL
+    docs_source, docs_url, docs_mode = _resolve_docs(
+        docs_rel, docs_url_raw, project_dir, yaml_path
+    )
 
     environment = raw.get("environment", "")
 
@@ -60,9 +70,18 @@ def load_project(path: Path | None = None) -> ProjectConfig:
     if raw_sessions is not None:
         sessions = [_parse_session(s) for s in raw_sessions]
 
+    # BROWSE mode requires explicit sessions (no content to auto-group from)
+    if docs_mode == DocsMode.BROWSE and sessions is None:
+        raise ValueError(
+            f"{yaml_path}: 'sessions' with page lists are required when using "
+            "docs_url without docs (URL-browse mode)"
+        )
+
     return ProjectConfig(
         name=name,
         docs_source=docs_source,
+        docs_url=docs_url,
+        docs_mode=docs_mode,
         environment=environment,
         sessions=sessions,
         project_dir=project_dir,
@@ -113,6 +132,34 @@ def auto_group_sessions(slugs: list[str]) -> list[SessionConfig]:
 # ---------------------------------------------------------------------------
 # Internal
 # ---------------------------------------------------------------------------
+
+def _resolve_docs(
+    docs_rel: str | None,
+    docs_url_raw: str | None,
+    project_dir: Path,
+    yaml_path: Path,
+) -> tuple[Path | None, str | None, DocsMode]:
+    """Determine docs mode, local source path, and URL from YAML fields."""
+    if docs_rel and str(docs_rel).startswith(("http://", "https://")):
+        # Remote file — same concatenated format, fetched at runtime
+        return None, str(docs_rel), DocsMode.URL
+
+    if docs_rel:
+        docs_source = (project_dir / docs_rel).resolve()
+        if not docs_source.exists():
+            raise FileNotFoundError(f"Docs path not found: {docs_source}")
+        if docs_source.is_dir():
+            return docs_source, docs_url_raw, DocsMode.DIRECTORY
+        return docs_source, docs_url_raw, DocsMode.FILE
+
+    if docs_url_raw:
+        # No local docs, only a live URL for browser navigation
+        return None, str(docs_url_raw), DocsMode.BROWSE
+
+    raise ValueError(
+        f"{yaml_path}: at least one of 'docs' or 'docs_url' is required"
+    )
+
 
 def _resolve_yaml_path(path: Path | None) -> Path:
     if path is not None:

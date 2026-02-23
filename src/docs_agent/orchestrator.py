@@ -9,8 +9,8 @@ from pathlib import Path
 from docs_agent import docker_manager
 from docs_agent.agent import test_page
 from docs_agent.models import Page, PageResult, PageStatus, SessionConfig, SessionState
-from docs_agent.parser import find_page_by_slug, parse_pages
-from docs_agent.project import ProjectConfig, auto_group_sessions, resolve_session_globs
+from docs_agent.parser import find_page_by_slug, make_url_pages, parse_pages, parse_pages_from_dir, parse_pages_from_url
+from docs_agent.project import DocsMode, ProjectConfig, auto_group_sessions, resolve_session_globs
 from docs_agent.report import generate_report, slug_to_filename, status_subdir
 
 log = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 
 def run_all(project: ProjectConfig) -> list[PageResult]:
     """Run all sessions and generate a report."""
-    pages = parse_pages(project.docs_source)
+    pages = _load_pages(project)
     sessions = _get_sessions(project, pages)
     all_results: list[PageResult] = []
     all_recordings: dict[str, Path] = {}
@@ -36,7 +36,7 @@ def run_all(project: ProjectConfig) -> list[PageResult]:
 
 def run_session(name: str, project: ProjectConfig) -> list[PageResult]:
     """Run a single session by name."""
-    pages = parse_pages(project.docs_source)
+    pages = _load_pages(project)
     sessions = _get_sessions(project, pages)
     session = _find_session(sessions, name)
     if session is None:
@@ -50,7 +50,7 @@ def run_session(name: str, project: ProjectConfig) -> list[PageResult]:
 
 def run_page(slug: str, project: ProjectConfig) -> list[PageResult]:
     """Run a single page by slug."""
-    pages = parse_pages(project.docs_source)
+    pages = _load_pages(project)
     page = find_page_by_slug(pages, slug)
     if page is None:
         raise ValueError(f"Unknown page slug: {slug}")
@@ -69,7 +69,7 @@ def run_page(slug: str, project: ProjectConfig) -> list[PageResult]:
     recordings: dict[str, Path] = {}
     try:
         _setup_infra(session, project)
-        result = test_page(page, state, project.environment)
+        result = test_page(page, state, project.environment, docs_url=project.docs_url)
         _save_recording(slug, recordings)
     except Exception as e:
         log.exception("Setup or test failed for %s", slug)
@@ -85,7 +85,7 @@ def run_page(slug: str, project: ProjectConfig) -> list[PageResult]:
 
 def list_pages(project: ProjectConfig) -> None:
     """Print all parsed pages."""
-    pages = parse_pages(project.docs_source)
+    pages = _load_pages(project)
     print(f"Found {len(pages)} pages:\n")
     for i, p in enumerate(pages, 1):
         print(f"  {i:3d}. {p.slug}")
@@ -93,7 +93,7 @@ def list_pages(project: ProjectConfig) -> None:
 
 def list_sessions(project: ProjectConfig) -> None:
     """Print all session definitions."""
-    pages = parse_pages(project.docs_source)
+    pages = _load_pages(project)
     sessions = _get_sessions(project, pages)
     print(f"Found {len(sessions)} sessions:\n")
     for s in sessions:
@@ -112,6 +112,24 @@ def list_sessions(project: ProjectConfig) -> None:
 # ---------------------------------------------------------------------------
 # Internal
 # ---------------------------------------------------------------------------
+
+def _load_pages(project: ProjectConfig) -> list[Page]:
+    """Load pages from the project's docs source based on its mode."""
+    mode = project.docs_mode
+    if mode == DocsMode.FILE:
+        return parse_pages(project.docs_source)
+    if mode == DocsMode.DIRECTORY:
+        return parse_pages_from_dir(project.docs_source)
+    if mode == DocsMode.URL:
+        return parse_pages_from_url(project.docs_url)
+    if mode == DocsMode.BROWSE:
+        # Collect all slugs from sessions — sessions are guaranteed present (validated in load_project)
+        all_slugs: list[str] = []
+        for s in project.sessions:
+            all_slugs.extend(s.page_slugs)
+        return make_url_pages(project.docs_url, all_slugs)
+    raise ValueError(f"Unknown docs mode: {mode}")
+
 
 def _get_sessions(project: ProjectConfig, pages: list[Page]) -> list[SessionConfig]:
     """Return resolved sessions — from YAML config or auto-grouped."""
@@ -179,7 +197,7 @@ def _run_session(
                 continue
 
             try:
-                result = test_page(page, state, project.environment)
+                result = test_page(page, state, project.environment, docs_url=project.docs_url)
                 _save_recording(slug, recordings)
             except Exception as e:
                 log.exception("Page %s failed with exception", slug)
