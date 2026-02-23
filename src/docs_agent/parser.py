@@ -56,16 +56,24 @@ def _make_page(filename: str, content_lines: list[str], start: int, end: int, pa
     return Page(slug=slug, filename=filename, content=content, line_start=start, line_end=end)
 
 
+_DOC_EXTENSIONS = (".mdx", ".md")
+
+
 def parse_pages_from_dir(source_dir: Path, page_format: str = "mdx") -> list[Page]:
     """Walk a directory tree and read individual doc files into Pages.
 
-    Each file becomes one Page with slug derived from its relative path
-    minus the extension (e.g. ``features/schema-explorer``).
+    Finds ``.mdx`` and ``.md`` files.  Each file becomes one Page with
+    slug derived from its relative path minus the extension
+    (e.g. ``features/schema-explorer``).
     """
     pages: list[Page] = []
-    for filepath in sorted(source_dir.rglob(f"*.{page_format}")):
+    for filepath in sorted(source_dir.rglob("*")):
+        if filepath.suffix not in _DOC_EXTENSIONS:
+            continue
         rel = filepath.relative_to(source_dir)
-        slug = str(rel).removesuffix(f".{page_format}")
+        slug = str(rel)
+        for ext in _DOC_EXTENSIONS:
+            slug = slug.removesuffix(ext)
         content = filepath.read_text()
         lines = content.splitlines()
         pages.append(Page(

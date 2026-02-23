@@ -1,6 +1,7 @@
-# Documentation QA Agent
+# Mimic - a documentation QA agent
+<img src="octopus.png">
 
-Automated QA agent that tests documentation by following instructions as a real user would — spinning up a sandboxed desktop in Docker, navigating via screenshots and mouse/keyboard, and producing Markdown reports with pass/fail results and screen recordings.
+Mimic is an automated QA agent that tests documentation by following instructions as a real user would — spinning up a sandboxed desktop in Docker, navigating via screenshots and mouse/keyboard, and producing Markdown reports with pass/fail results and screen recordings.
 
 Supports **Anthropic Claude** and **OpenAI CUA**. [How it works &darr;](#how-it-works)
 
@@ -44,7 +45,7 @@ my-project/
 
 1. **`qa-project.yaml`** — set your app's name and describe the running environment (Docker hostnames, ports, credentials the LLM needs to know about).
 2. **`docker-compose.yml`** — add your app's services. They must join the `docsagent-net` network.
-3. **`docs/`** — add one `.mdx` file per page you want tested. The filename becomes the page slug.
+3. **`docs/`** — add one `.md`/`.mdx` file per page you want tested. Or point `docs:` in the yaml at your existing docs folder (e.g. `docs: ../my-app/docs/`) — no need to copy files.
 
 Then run it:
 
@@ -113,15 +114,23 @@ The `docs` field auto-detects the source type:
 
 | Value | Mode | What happens |
 |---|---|---|
-| `assets/llms.txt` | **File** | Concatenated file with `# filename.mdx` headers |
-| `docs/` | **Directory** | Reads each `.mdx` file; slug = relative path minus extension |
-| `https://.../llms.txt` | **URL** | Fetches remote file, same format as File |
+| `docs/` | **Directory** | Reads each `.md`/`.mdx` file; slug = relative path minus extension. Point this at your existing docs folder — no need to copy files. |
+| `assets/llms.txt` | **File** | Concatenated file with `# filename.mdx` headers (see [format below](#concatenated-file-format)) |
+| `https://.../llms.txt` | **URL** | Fetches remote concatenated file, same format as File |
 
-A fourth **Browse** mode uses `docs_url` — the LLM navigates to `{docs_url}/{slug}` in Firefox instead of reading content from the prompt:
+**Directory mode** is the simplest — just point `docs:` at any folder of markdown files:
+
+```yaml
+docs: docs/                     # local folder in the project
+docs: ../my-app/docs/           # or an existing docs folder elsewhere
+docs: /absolute/path/to/docs/   # absolute paths work too
+```
+
+A fourth **Browse** mode uses `docs_url` instead — the LLM navigates to `{docs_url}/{slug}` in Firefox and reads the page on screen:
 
 ```yaml
 docs_url: https://docs.example.com
-sessions:   # required — no content to auto-group from
+sessions:   # required — no content to auto-discover from
   - name: Getting Started
     pages: [installation, quickstart]
 ```
@@ -132,6 +141,22 @@ You can combine both — `docs` for prompt content, `docs_url` so the LLM also o
 docs: assets/llms.txt
 docs_url: https://docs.example.com
 ```
+
+### Works with most doc generators
+
+The agent doesn't care how your docs were built — it just needs markdown files or a live URL. Most generators already keep source as `.md`/`.mdx` files in a directory, so **directory mode** works out of the box:
+
+| Generator | Setup |
+|-----------|-------|
+| **Docusaurus** | `docs: docs/` — point at the `docs/` source directory |
+| **MkDocs / Material** | `docs: docs/` — same, markdown source files |
+| **VitePress** | `docs: docs/` — same |
+| **Mintlify** | `docs: docs/` — `.mdx` files work directly |
+| **GitBook** | `docs_url: https://your-site.gitbook.io` — browse mode (list pages in sessions) |
+| **Notion** | Export as markdown → `docs: exported/` |
+| **Any live site** | `docs_url: https://docs.example.com` — browse mode |
+
+For sites without markdown source access, use **browse mode** — the agent opens each page in Firefox and follows the instructions it reads on screen.
 
 ### Concatenated file format
 
@@ -249,7 +274,7 @@ The OpenAI CUA model performs best on browser-based tasks. The agent automatical
 ### Reports
 
 ```
-reports/2025-01-15_14-30-00_full-run/
+reports/2026-02-23_14-30-00_full-run/
   summary.md
   passed/installation.md
   failed/features--schema-explorer.md
