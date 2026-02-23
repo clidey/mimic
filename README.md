@@ -236,6 +236,16 @@ Set in `.env` (copy from `.env.example`):
 | `AWS_REGION` | For AWS runner | AWS region |
 | `S3_BUCKET` | For AWS runner | S3 bucket name |
 
+### Provider notes
+
+**Anthropic** (default) — uses `claude-sonnet-4-6` with the computer-use beta API. Single model handles both desktop actions and structured assessment output.
+
+**OpenAI** — uses a two-model approach:
+- `computer-use-preview` for desktop actions (clicking, typing, navigating)
+- `gpt-5.2` for generating the structured pass/fail assessment after the CUA session ends
+
+The OpenAI CUA model performs best on browser-based tasks. The agent automatically pre-launches Firefox and a terminal on the desktop so the model can focus on navigation rather than app discovery. Reports include which provider and models were used.
+
 ### Reports
 
 ```

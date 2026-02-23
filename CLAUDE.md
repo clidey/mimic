@@ -53,9 +53,9 @@ The agent follows a pipeline: **load project → parse docs → orchestrate sess
 - **`parser.py`** — Parses a docs file (e.g. `llms.txt`) delimited by `# filename.mdx` headers into `Page` objects. Parameterized by source path and page format.
 - **`config.py`** — Runtime constants: desktop container name, network name, display settings, provider config (model names, API settings), and agent loop parameters. No project-specific config.
 - **`orchestrator.py`** — Top-level runner. Takes `ProjectConfig`, sets up infrastructure per session via Docker Compose + desktop sandbox, iterates pages, calls the agent, collects recordings, generates reports.
-- **`agent.py`** — The computer-use agent loop. Builds a system prompt with the page content and project's environment description, uses the provider abstraction to communicate with the LLM, dispatches tool calls to Docker exec commands (screenshots via `scrot`, mouse/keyboard via `xdotool`). Parses the structured `STATUS/STEPS/FAILURE_TYPE/FAILURE_REASON` output into `PageResult`.
-- **`providers/`** — Provider abstraction for interchangeable LLM backends. `__init__.py` defines the `Provider` ABC, normalized types (`ToolCall`, `ToolResult`, `ProviderResponse`), and a `get_provider()` factory. `anthropic_provider.py` wraps the Claude computer-use API. `openai_provider.py` wraps the OpenAI CUA (Responses API).
-- **`docker_manager.py`** — All Docker operations via subprocess (no docker-py). Manages the desktop sandbox container (built from the bundled `sandbox/Dockerfile`) and delegates app services to Docker Compose (`compose_up`/`compose_down`). Also handles screenshots, xdotool exec, and ffmpeg screen recording.
+- **`agent.py`** — The computer-use agent loop. Has provider-specific system prompts: `_build_anthropic_prompt` (full assessment format, general instructions) and `_build_cua_prompt` (action-oriented, explicit desktop guidance, no assessment format). Dispatches tool calls to Docker exec commands (screenshots via `scrot`, mouse/keyboard via `xdotool`). For Anthropic, parses the structured assessment directly from model output. For OpenAI, a follow-up `gpt-5.2` call generates the assessment from the action log.
+- **`providers/`** — Provider abstraction for interchangeable LLM backends. `__init__.py` defines the `Provider` ABC, normalized types (`ToolCall`, `ToolResult`, `ProviderResponse`), and a `get_provider()` factory. `anthropic_provider.py` wraps the Claude computer-use API. `openai_provider.py` wraps the OpenAI CUA (Responses API) with `reasoning` summaries, safety check acknowledgment, and a `generate_assessment()` method that calls `gpt-5.2` to produce structured results.
+- **`docker_manager.py`** — All Docker operations via subprocess (no docker-py). Manages the desktop sandbox container (built from the bundled `sandbox/Dockerfile`) and delegates app services to Docker Compose (`compose_up`/`compose_down`). `prepare_desktop()` pre-launches Firefox and a terminal for CUA models. Also handles screenshots, xdotool exec, and ffmpeg screen recording.
 - **`report.py`** — Generates timestamped report directories under `reports/` with `summary.md` and per-page Markdown files organized into `passed/`, `failed/`, `skipped/` subdirectories, plus `.mp4` recordings.
 - **`runner_utils.py`** — Shared utilities for cloud runners: `.env` parsing, required-var checks, and tarball packaging.
 - **`gcp.py`** — Standalone GCP launcher that packages the repo, uploads to GCS, creates a spot VM with a startup script, and optionally polls for completion.
@@ -68,11 +68,11 @@ Each project provides: `name`, `docs` (path to llms.txt), `environment` (free-te
 
 ### Agent loop details
 
-The agent loop in `agent.py:test_page()` runs up to `MAX_AGENT_ITERATIONS` (40) turns. At turn 30 (`WRAPUP_THRESHOLD`), it injects a wrap-up nudge message telling the LLM to stop testing and produce its assessment. The agent's final text output is parsed via regex for the structured assessment format.
+The agent loop in `agent.py:test_page()` runs up to `MAX_AGENT_ITERATIONS` (40) turns. At turn 30 (`WRAPUP_THRESHOLD`), it injects a wrap-up nudge message telling the LLM to stop testing and produce its assessment. The agent's final text output is parsed via regex for the structured assessment format. For OpenAI, the CUA model rarely produces structured text, so a follow-up call to `gpt-5.2` (configured via `OPENAI_ASSESSMENT_MODEL` in `config.py`) analyzes the action log + final screenshot to generate the assessment.
 
 ### Infrastructure lifecycle
 
-Each session gets fresh infrastructure. `_setup_infra()` calls `stop_all()` first (cleanup from previous runs), then runs `docker compose up` with the session's compose profiles, then starts the desktop sandbox. Sessions with `needs_desktop: false` skip all Docker entirely.
+Each session gets fresh infrastructure. `_setup_infra()` calls `stop_all()` first (cleanup from previous runs), then runs `docker compose up` with the session's compose profiles, then starts the desktop sandbox. For OpenAI, `prepare_desktop()` pre-launches Firefox and a terminal (the CUA model struggles to find and open apps on its own). Sessions with `needs_desktop: false` skip all Docker entirely.
 
 ## Environment
 
