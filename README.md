@@ -161,27 +161,27 @@ OPENAI_API_KEY=sk-proj-...        # if using openai
 Launch on a GCP spot VM or AWS EC2 spot instance:
 
 ```bash
-uv run docs-agent-gcp [--wait] [--cleanup]
-uv run docs-agent-aws [--wait] [--cleanup]
+uv run docs-agent-cloud --cloud gcp --provider anthropic
+uv run docs-agent-cloud --cloud aws --provider openai
+uv run docs-agent-cloud --cloud gcp --wait          # launch + poll + download results
+uv run docs-agent-cloud --cloud aws --cleanup        # kill a stuck instance
 ```
 
-`--wait` polls until done and downloads results. `--cleanup` kills a stuck instance.
-
-Auth uses your local CLI credentials (`gcloud auth` / `aws configure`), but project, bucket, and region must be set explicitly in `.env`:
+`--provider` overrides `AGENT_PROVIDER` in `.env`, so you can keep both API keys configured and pick per-run. Auth uses your local CLI credentials (`gcloud auth` / `aws configure`), but project, bucket, and region must be set explicitly in `.env`:
 
 ```bash
-# GCP
-GCP_PROJECT=my-gcp-project       # required — no default from gcloud config
-GCS_BUCKET=my-bucket              # required
+# GCP (requires gcloud CLI)
+GCP_PROJECT=my-gcp-project
+GCS_BUCKET=my-bucket
 
-# AWS
-AWS_REGION=us-east-1              # required — no default from aws config
-S3_BUCKET=my-bucket               # required
+# AWS (requires aws CLI)
+AWS_REGION=us-east-1
+S3_BUCKET=my-bucket
 AWS_ACCESS_KEY_ID=AKIA...         # or use AWS_IAM_INSTANCE_PROFILE instead
 AWS_SECRET_ACCESS_KEY=...
 
 # What to run on the VM
-DOCS_AGENT_ARGS=--project examples/whodb --session "Core Features"
+DOCS_AGENT_ARGS=--project examples/whodb
 ```
 
 ## How it works

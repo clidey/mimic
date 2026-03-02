@@ -32,15 +32,11 @@ uv run docs-agent --project examples/whodb --list-sessions
 # Verbose/debug logging
 uv run docs-agent --project examples/whodb -v
 
-# Launch on GCP spot VM (requires .env with GCP_PROJECT, GCS_BUCKET)
-uv run docs-agent-gcp
-uv run docs-agent-gcp --wait      # launch + poll + download results
-uv run docs-agent-gcp --cleanup   # delete VM
-
-# Launch on AWS EC2 spot instance (requires .env with AWS_REGION, S3_BUCKET)
-uv run docs-agent-aws
-uv run docs-agent-aws --wait      # launch + poll + download results
-uv run docs-agent-aws --cleanup   # terminate instance
+# Launch on cloud spot instance (requires .env with cloud config)
+uv run docs-agent-cloud --cloud gcp --provider anthropic
+uv run docs-agent-cloud --cloud aws --provider openai
+uv run docs-agent-cloud --cloud gcp --wait      # launch + poll + download results
+uv run docs-agent-cloud --cloud aws --cleanup   # terminate instance
 ```
 
 ## Architecture
@@ -58,8 +54,9 @@ The agent follows a pipeline: **load project → parse docs → orchestrate sess
 - **`docker_manager.py`** — All Docker operations via subprocess (no docker-py). Manages the desktop sandbox container (built from the bundled `sandbox/Dockerfile`) and delegates app services to Docker Compose (`compose_up`/`compose_down`). `prepare_desktop()` pre-launches Firefox and a terminal for CUA models. Also handles screenshots, xdotool exec, and ffmpeg screen recording.
 - **`report.py`** — Generates timestamped report directories under `reports/` with `summary.md` and per-page Markdown files organized into `passed/`, `failed/`, `skipped/` subdirectories, plus `.mp4` recordings.
 - **`runner_utils.py`** — Shared utilities for cloud runners: `.env` parsing, required-var checks, and tarball packaging.
-- **`gcp.py`** — Standalone GCP launcher that packages the repo, uploads to GCS, creates a spot VM with a startup script, and optionally polls for completion.
-- **`aws.py`** — Standalone AWS launcher using boto3. Packages the repo, uploads to S3, creates an EC2 spot instance, and optionally polls for results.
+- **`cloud.py`** — Unified CLI entry point for cloud runners (`docs-agent-cloud --cloud gcp|aws --provider anthropic|openai`).
+- **`gcp.py`** — GCP launcher: packages repo, uploads to GCS, creates a spot VM with a startup script, polls for completion.
+- **`aws.py`** — AWS launcher using boto3: packages repo, uploads to S3, creates an EC2 spot instance, polls for results.
 - **`models.py`** — Dataclasses: `Page`, `PageResult`, `StepResult`, `SessionState` (cascading-failure tracker), `SessionConfig`.
 
 ### Project config (`qa-project.yaml`)

@@ -9,7 +9,6 @@ Usage:
 
 from __future__ import annotations
 
-import argparse
 import base64
 import time
 from pathlib import Path
@@ -17,7 +16,7 @@ from pathlib import Path
 import boto3
 from botocore.exceptions import ClientError
 
-from docs_agent.runner_utils import AGENT_ROOT, load_env, package_agent_code, require
+from docs_agent.runner_utils import AGENT_ROOT, package_agent_code, require
 
 INSTANCE_TAG = "docsagent-runner"
 
@@ -386,23 +385,5 @@ def cmd_cleanup(env: dict[str, str]) -> None:
 # CLI
 # ---------------------------------------------------------------------------
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Run docs-agent on an AWS EC2 spot instance")
-    parser.add_argument("--wait", action="store_true", help="Poll until done, then download results")
-    parser.add_argument("--cleanup", action="store_true", help="Terminate the instance if still running")
-    parser.add_argument("--env", default=str(AGENT_ROOT / ".env"), help="Path to .env file")
-    args = parser.parse_args()
 
-    env = load_env(Path(args.env))
-
-    if args.cleanup:
-        cmd_cleanup(env)
-    elif args.wait:
-        cmd_launch(env)
-        cmd_wait(env)
-    else:
-        cmd_launch(env)
-
-
-if __name__ == "__main__":
-    main()
+# Entry points are cmd_launch, cmd_wait, cmd_cleanup — called from cloud.py
