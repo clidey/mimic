@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import openai
 
-from docs_agent.config import OPENAI_ASSESSMENT_MODEL, OPENAI_MAX_TOKENS, OPENAI_MODEL
+from docs_agent.config import ASSESSMENT_FORMAT, OPENAI_ASSESSMENT_MODEL, OPENAI_MAX_TOKENS, OPENAI_MODEL
 from docs_agent.providers import Provider, ProviderResponse, ToolCall, ToolResult
 
 log = logging.getLogger(__name__)
 
-_ASSESSMENT_PROMPT = """\
+_ASSESSMENT_PROMPT = f"""\
 You are evaluating a documentation QA test session. A computer-use agent was given
 a documentation page and asked to follow each instruction step by step on a live
 desktop. Below is the system prompt the agent received (which contains the page
@@ -24,12 +25,7 @@ on the actions taken and the final screen state.
 
 You MUST produce your output in EXACTLY this plain-text format (not JSON):
 
-STATUS: PASSED | FAILED | SKIPPED
-STEPS:
-- [step description] : PASS | FAIL ([brief error if failed])
-- [step description] : PASS | FAIL ([brief error if failed])
-FAILURE_TYPE: independent | likely_cascading | unknown
-FAILURE_REASON: [one-line explanation if failed, or "n/a" if passed]
+{ASSESSMENT_FORMAT}
 
 Rules:
 - STATUS is PASSED only if ALL steps passed.
@@ -39,10 +35,10 @@ Rules:
 - Be concise. One line per step.
 
 === SYSTEM PROMPT (contains doc page) ===
-{system_prompt}
+{{system_prompt}}
 
 === ACTION LOG ===
-{action_log}
+{{action_log}}
 """
 
 
@@ -50,7 +46,7 @@ class OpenAIProvider(Provider):
     """Provider backed by the OpenAI Responses API with computer-use-preview."""
 
     def __init__(self) -> None:
-        self._client: openai.OpenAI | None = None
+        self._client: openai.OpenAI = openai.OpenAI(max_retries=2)
         self._previous_response_id: str | None = None
         self._display_width: int = 1280
         self._display_height: int = 800
@@ -60,7 +56,6 @@ class OpenAIProvider(Provider):
         self._pending_safety_checks: list[dict] = []
 
     def setup(self, system_prompt: str, display_width: int, display_height: int) -> None:
-        self._client = openai.OpenAI()
         self._system = system_prompt
         self._display_width = display_width
         self._display_height = display_height
@@ -84,7 +79,7 @@ class OpenAIProvider(Provider):
                 "image_url": f"data:image/png;base64,{b64}",
             })
 
-        response = self._client.responses.create(
+        response = self._client.responses.create(  # type: ignore[call-overload]
             model=OPENAI_MODEL,
             instructions=self._system,
             input=[{"role": "user", "content": content}],
@@ -107,7 +102,7 @@ class OpenAIProvider(Provider):
         if nudge_text:
             items.append({"role": "user", "content": [{"type": "input_text", "text": nudge_text}]})
 
-        response = self._client.responses.create(
+        response = self._client.responses.create(  # type: ignore[call-overload]
             model=OPENAI_MODEL,
             previous_response_id=self._previous_response_id,
             input=items,
@@ -141,15 +136,21 @@ class OpenAIProvider(Provider):
         try:
             resp = self._client.chat.completions.create(
                 model=OPENAI_ASSESSMENT_MODEL,
-                messages=messages,
+                messages=messages,  # type: ignore[arg-type]
                 max_completion_tokens=4096,
             )
             text = resp.choices[0].message.content or ""
             log.info("Assessment generated (%d chars)", len(text))
             return text
         except Exception as e:
-            log.warning("Assessment generation failed: %s", e)
-            return None
+            log.error("Assessment generation failed: %s", e)
+            return (
+                "STATUS: FAILED\n"
+                "STEPS:\n"
+                "- Assessment generation : FAIL (follow-up LLM call failed)\n"
+                f"FAILURE_TYPE: independent\n"
+                f"FAILURE_REASON: Assessment could not be generated: {type(e).__name__}: {e}"
+            )
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -198,7 +199,7 @@ class OpenAIProvider(Provider):
 
         return output
 
-    def _parse_response(self, response: object) -> ProviderResponse:
+    def _parse_response(self, response: Any) -> ProviderResponse:
         """Parse an OpenAI Responses API response into a ProviderResponse."""
         tool_calls: list[ToolCall] = []
         text_parts: list[str] = []
@@ -245,7 +246,7 @@ class OpenAIProvider(Provider):
         )
 
     @staticmethod
-    def _describe_action(action: object) -> str:
+    def _describe_action(action: Any) -> str:
         """Produce a human-readable one-liner describing a CUA action."""
         t = action.type
         if t == "click":
@@ -275,7 +276,7 @@ class OpenAIProvider(Provider):
             return f"move to ({action.x}, {action.y})"
         return f"{t} (unknown)"
 
-    def _normalize_action(self, action: object) -> dict:
+    def _normalize_action(self, action: Any) -> dict:
         """Map an OpenAI CUA action to an Anthropic-style tool name + input dict."""
         action_type = action.type
 

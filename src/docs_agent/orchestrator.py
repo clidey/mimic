@@ -114,16 +114,23 @@ def list_sessions(project: ProjectConfig) -> None:
 # ---------------------------------------------------------------------------
 
 def _load_pages(project: ProjectConfig) -> list[Page]:
-    """Load pages from the project's docs source based on its mode."""
+    """Load pages from the project's docs source based on its mode.
+
+    Each branch is guarded by docs_mode, which guarantees the corresponding
+    field is non-None (enforced by load_project validation).
+    """
     mode = project.docs_mode
     if mode == DocsMode.FILE:
+        assert project.docs_source is not None
         return parse_pages(project.docs_source)
     if mode == DocsMode.DIRECTORY:
+        assert project.docs_source is not None
         return parse_pages_from_dir(project.docs_source)
     if mode == DocsMode.URL:
+        assert project.docs_url is not None
         return parse_pages_from_url(project.docs_url)
     if mode == DocsMode.BROWSE:
-        # Collect all slugs from sessions — sessions are guaranteed present (validated in load_project)
+        assert project.sessions is not None and project.docs_url is not None
         all_slugs: list[str] = []
         for s in project.sessions:
             all_slugs.extend(s.page_slugs)

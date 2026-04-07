@@ -15,7 +15,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from docs_agent.runner_utils import AGENT_ROOT, package_agent_code, require
+from docs_agent.runner_utils import AGENT_ROOT, build_startup_script, package_agent_code, require
 
 VM_NAME = "docsagent-runner"
 
@@ -24,7 +24,7 @@ VM_NAME = "docsagent-runner"
 # gcloud helpers
 # ---------------------------------------------------------------------------
 
-def run(cmd: list[str], *, check: bool = True, capture: bool = False) -> subprocess.CompletedProcess:
+def run(cmd: list[str], *, check: bool = True, capture: bool = False) -> subprocess.CompletedProcess[str]:
     print(f"  $ {' '.join(cmd)}")
     return subprocess.run(cmd, check=check, capture_output=capture, text=True)
 
@@ -48,12 +48,11 @@ def vm_exists(project: str, zone: str) -> bool:
 # Startup script (runs on the VM)
 # ---------------------------------------------------------------------------
 
-def build_startup_script(env: dict[str, str]) -> str:
+def _build_startup_script(env: dict[str, str]) -> str:
     provider = env.get("AGENT_PROVIDER", "anthropic")
     bucket = require(env, "GCS_BUCKET")
     agent_args = env.get("DOCS_AGENT_ARGS", "")
 
-    # Resolve the correct API key for the chosen provider
     if provider == "openai":
         api_key = require(env, "OPENAI_API_KEY")
         key_export = f'export OPENAI_API_KEY="{api_key}"'
@@ -61,67 +60,19 @@ def build_startup_script(env: dict[str, str]) -> str:
         api_key = require(env, "ANTHROPIC_API_KEY")
         key_export = f'export ANTHROPIC_API_KEY="{api_key}"'
 
-    return f"""\
-#!/bin/bash
-exec > /var/log/docsagent.log 2>&1
-TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
-
-# Always upload logs and shut down, even on failure
-cleanup() {{
-    echo "=== Uploading logs $(date) ==="
-    gsutil cp /var/log/docsagent.log gs://{bucket}/results/$TIMESTAMP/runner.log || true
-    echo "=== Shutting down VM ==="
-    shutdown -h now
-}}
-trap cleanup EXIT
-
-echo "=== docs-agent startup $(date) ==="
-
-# Install Docker
-apt-get update -qq
-apt-get install -y -qq docker.io docker-compose-v2 containerd curl
-systemctl start docker
-systemctl enable docker
-
-# Wait for Docker daemon to be fully ready
-echo "Waiting for Docker daemon..."
-for i in $(seq 1 30); do
-    if docker info >/dev/null 2>&1; then
-        echo "Docker is ready."
-        break
-    fi
-    echo "  attempt $i/30 — not ready, waiting 2s..."
-    sleep 2
-done
-
-# Install uv
-curl -LsSf https://astral.sh/uv/install.sh | sh
-source /root/.local/bin/env
-
-# Download the agent code from GCS
-mkdir -p /opt/docsagent
-gsutil cp gs://{bucket}/docsagent-code.tar.gz /opt/docsagent/code.tar.gz
-cd /opt/docsagent
-tar xzf code.tar.gz
-
-# Install dependencies
-cd /opt/docsagent/docs-agent
-uv sync
-
-# Run the agent
-export AGENT_PROVIDER="{provider}"
-{key_export}
-echo "=== Starting docs-agent $(date) ==="
-uv run docs-agent {agent_args} || true
-echo "=== docs-agent finished $(date) ==="
-
-# Upload results to GCS
-if [ -d reports ]; then
-    gsutil -m cp -r reports/ gs://{bucket}/results/$TIMESTAMP/
-    echo "$TIMESTAMP" | gsutil cp - gs://{bucket}/latest.txt
-    echo "Results uploaded to gs://{bucket}/results/$TIMESTAMP/"
-fi
-"""
+    return build_startup_script(
+        provider=provider,
+        key_export=key_export,
+        agent_args=agent_args,
+        upload_logs_cmd=f"gsutil cp /var/log/docsagent.log gs://{bucket}/results/$TIMESTAMP/runner.log || true",
+        download_code_cmd=f"gsutil cp gs://{bucket}/docsagent-code.tar.gz /opt/docsagent/code.tar.gz",
+        upload_results_cmd=(
+            f'aws s3 sync reports/ gs://{bucket}/results/$TIMESTAMP/reports/ 2>/dev/null || '
+            f'gsutil -m cp -r reports/ gs://{bucket}/results/$TIMESTAMP/\n'
+            f'    echo "$TIMESTAMP" | gsutil cp - gs://{bucket}/latest.txt\n'
+            f'    echo "Results uploaded to gs://{bucket}/results/$TIMESTAMP/"'
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -157,7 +108,7 @@ def cmd_launch(env: dict[str, str]) -> None:
 
     # Write startup script to temp file
     print("\n3. Creating startup script...")
-    startup = build_startup_script(env)
+    startup = _build_startup_script(env)
     fd, tmp = tempfile.mkstemp(suffix=".sh")
     import os
     os.close(fd)
@@ -262,11 +213,6 @@ def cmd_cleanup(env: dict[str, str]) -> None:
     print(f"Deleting VM '{VM_NAME}'...")
     run(["gcloud", "compute", "instances", "delete", VM_NAME,
          "--project", project, "--zone", zone, "--quiet"], check=False)
-
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
 
 
 # Entry points are cmd_launch, cmd_wait, cmd_cleanup — called from cloud.py

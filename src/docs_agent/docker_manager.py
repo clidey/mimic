@@ -168,24 +168,51 @@ def xdotool(args: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Screen recording
+# Screen recording (PID-tracked)
 # ---------------------------------------------------------------------------
 
+_recording_pid: str | None = None
+
+
 def start_recording() -> None:
-    """Start recording the desktop display to /tmp/recording.mp4 inside the container."""
+    """Start recording the desktop display to /tmp/recording.mp4 inside the container.
+
+    Tracks the ffmpeg PID so stop_recording() can signal the exact process.
+    """
+    global _recording_pid
+    _recording_pid = None
+
     exec_in_desktop(
         f"DISPLAY={DISPLAY} ffmpeg -video_size {DISPLAY_WIDTH}x{DISPLAY_HEIGHT} -framerate 5 "
         f"-f x11grab -i {DISPLAY} -c:v libx264 -preset ultrafast "
-        "-pix_fmt yuv420p -y /tmp/recording.mp4 </dev/null &>/dev/null &"
+        "-pix_fmt yuv420p -y /tmp/recording.mp4 </dev/null &>/dev/null & echo $!"
     )
-    log.info("Screen recording started")
+    # Retrieve the PID we just backgrounded
+    pid = exec_in_desktop("cat /proc/$(pgrep -n ffmpeg)/status 2>/dev/null | head -1 | awk '{print $2}'").strip()
+    if not pid:
+        # Fallback: use pgrep directly
+        pid = exec_in_desktop("pgrep -n ffmpeg").strip()
+
+    if pid and pid.isdigit():
+        _recording_pid = pid
+        log.info("Screen recording started (PID %s)", _recording_pid)
+    else:
+        log.warning("Screen recording started but could not determine PID — stop will use pkill")
 
 
 def stop_recording() -> None:
-    """Stop the ffmpeg recording gracefully."""
-    exec_in_desktop("pkill -INT ffmpeg || true")
+    """Stop the ffmpeg recording gracefully using the tracked PID."""
+    global _recording_pid
+
+    if _recording_pid:
+        exec_in_desktop(f"kill -INT {_recording_pid} 2>/dev/null || true")
+        log.info("Sent SIGINT to ffmpeg PID %s", _recording_pid)
+    else:
+        exec_in_desktop("pkill -INT ffmpeg || true")
+        log.info("Sent SIGINT to ffmpeg via pkill (no PID tracked)")
+
+    _recording_pid = None
     time.sleep(2)
-    log.info("Screen recording stopped")
 
 
 def copy_recording(dest: Path) -> bool:

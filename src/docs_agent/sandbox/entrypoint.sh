@@ -9,7 +9,7 @@ sleep 1
 DISPLAY=:1 fluxbox >/dev/null 2>&1 &
 sleep 0.5
 
-echo "Desktop ready — display :1 @ 1024x768"
+echo "Desktop ready — display :1 @ 1280x800"
 
 # Start Docker daemon in background (Docker-in-Docker)
 dockerd --storage-driver=vfs &>/var/log/dockerd.log &

@@ -41,3 +41,14 @@ OPENAI_MAX_TOKENS = 16384
 # ---------------------------------------------------------------------------
 MAX_AGENT_ITERATIONS = 40
 WRAPUP_THRESHOLD = 30  # inject wrap-up nudge at this iteration
+
+# ---------------------------------------------------------------------------
+# Assessment format — single source of truth used by prompts and providers
+# ---------------------------------------------------------------------------
+ASSESSMENT_FORMAT = """\
+STATUS: PASSED | FAILED | SKIPPED
+STEPS:
+- [step description] : PASS | FAIL ([error if failed])
+- [step description] : PASS | FAIL ([error if failed])
+FAILURE_TYPE: independent | likely_cascading | unknown
+FAILURE_REASON: [explanation if failed]"""

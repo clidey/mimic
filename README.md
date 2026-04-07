@@ -184,6 +184,44 @@ AWS_SECRET_ACCESS_KEY=...
 DOCS_AGENT_ARGS=--project examples/whodb
 ```
 
+## Troubleshooting
+
+**Docker daemon not running**
+```
+Error: Cannot connect to the Docker daemon
+```
+Start Docker Desktop or run `sudo systemctl start docker`.
+
+**API key not set**
+```
+Error: ANTHROPIC_API_KEY is required in .env
+```
+Copy `.env.example` to `.env` and fill in your API key. The agent loads `.env` automatically.
+
+**Firefox fails to launch in sandbox**
+If the desktop container starts but Firefox doesn't appear, check the container logs:
+```bash
+docker logs docsagent-desktop
+```
+The sandbox uses the Mozilla PPA build of Firefox (not snap). If the image is stale, rebuild:
+```bash
+docker rmi docsagent-desktop && uv run docs-agent --project examples/minimal --page getting-started
+```
+
+**Screen recording is empty or missing**
+ffmpeg records inside the container at `/tmp/recording.mp4`. If recordings are missing:
+- Check that ffmpeg is installed in the sandbox: `docker exec docsagent-desktop which ffmpeg`
+- Check the display is active: `docker exec docsagent-desktop xdpyinfo -display :1`
+
+**Desktop container times out**
+```
+RuntimeError: Desktop container did not become ready
+```
+The Xvfb display failed to start within 30 seconds. This usually means Docker is out of resources — try `docker system prune` to free space.
+
+**Pages marked NOT_APPLICABLE**
+Pages in sessions with `needs_desktop: false` are intentionally skipped. These are informational pages (changelogs, API references) that can't be tested interactively.
+
 ## How it works
 
 ```

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import anthropic
 
-from docs_agent.config import ANTHROPIC_BETA, ANTHROPIC_MAX_TOKENS, ANTHROPIC_MODEL, DISPLAY_HEIGHT, DISPLAY_WIDTH
+from docs_agent.config import ANTHROPIC_BETA, ANTHROPIC_MAX_TOKENS, ANTHROPIC_MODEL
 from docs_agent.providers import Provider, ProviderResponse, ToolCall, ToolResult
 
 
@@ -12,7 +12,7 @@ class AnthropicProvider(Provider):
     """Provider backed by the Anthropic messages-beta API."""
 
     def __init__(self) -> None:
-        self._client = anthropic.Anthropic()
+        self._client = anthropic.Anthropic(max_retries=2)
         self._system: str = ""
         self._messages: list[dict] = []
         self._tools: list[dict] = []
@@ -59,8 +59,8 @@ class AnthropicProvider(Provider):
             model=ANTHROPIC_MODEL,
             max_tokens=ANTHROPIC_MAX_TOKENS,
             system=self._system,
-            messages=self._messages,
-            tools=self._tools,
+            messages=self._messages,  # type: ignore[arg-type]
+            tools=self._tools,  # type: ignore[arg-type]
             betas=[ANTHROPIC_BETA],
         )
 

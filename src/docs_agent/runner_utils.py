@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import tarfile
 import tempfile
@@ -49,7 +50,6 @@ def package_agent_code() -> Path:
     to keep the archive small. Caller is responsible for deleting the file.
     """
     fd, tmp = tempfile.mkstemp(suffix=".tar.gz")
-    import os
     os.close(fd)
     tar_path = Path(tmp)
 
@@ -64,3 +64,87 @@ def package_agent_code() -> Path:
         tar.add(str(AGENT_ROOT), arcname="docs-agent", filter=_filter)
     print(f"   Archive: {tar_path} ({tar_path.stat().st_size / 1024 / 1024:.1f} MB)")
     return tar_path
+
+
+# ---------------------------------------------------------------------------
+# Shared startup script template for cloud VMs
+# ---------------------------------------------------------------------------
+
+def build_startup_script(
+    *,
+    provider: str,
+    key_export: str,
+    agent_args: str,
+    upload_logs_cmd: str,
+    download_code_cmd: str,
+    upload_results_cmd: str,
+    extra_packages: str = "",
+    pre_env_lines: str = "",
+) -> str:
+    """Build the bash startup script that runs on cloud VMs.
+
+    Cloud-specific parts (storage commands, credentials) are injected via
+    parameters.  Everything else — Docker install, uv install, agent run —
+    is shared.
+    """
+    return f"""\
+#!/bin/bash
+exec > /var/log/docsagent.log 2>&1
+TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
+
+{pre_env_lines}
+
+# Always upload logs and shut down, even on failure
+cleanup() {{
+    echo "=== Uploading logs $(date) ==="
+    {upload_logs_cmd}
+    echo "=== Shutting down ==="
+    shutdown -h now
+}}
+trap cleanup EXIT
+
+echo "=== docs-agent startup $(date) ==="
+
+# Install Docker
+apt-get update -qq
+apt-get install -y -qq docker.io docker-compose-v2 containerd curl{' ' + extra_packages if extra_packages else ''}
+systemctl start docker
+systemctl enable docker
+
+# Wait for Docker daemon to be fully ready
+echo "Waiting for Docker daemon..."
+for i in $(seq 1 30); do
+    if docker info >/dev/null 2>&1; then
+        echo "Docker is ready."
+        break
+    fi
+    echo "  attempt $i/30 — not ready, waiting 2s..."
+    sleep 2
+done
+
+# Install uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source /root/.local/bin/env
+
+# Download the agent code
+mkdir -p /opt/docsagent
+{download_code_cmd}
+cd /opt/docsagent
+tar xzf code.tar.gz
+
+# Install dependencies
+cd /opt/docsagent/docs-agent
+uv sync
+
+# Run the agent
+export AGENT_PROVIDER="{provider}"
+{key_export}
+echo "=== Starting docs-agent $(date) ==="
+uv run docs-agent {agent_args} || true
+echo "=== docs-agent finished $(date) ==="
+
+# Upload results
+if [ -d reports ]; then
+    {upload_results_cmd}
+fi
+"""

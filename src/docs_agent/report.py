@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import datetime
 import os
+from collections.abc import Callable
 from pathlib import Path
 
 from docs_agent.models import FailureType, PageResult, PageStatus, StepResult
+
+# Type alias for the `w = lines.append` pattern used throughout
+_LineAppender = Callable[[str], None]
 
 REPORTS_DIR = Path(__file__).resolve().parent.parent.parent / "reports"
 
@@ -85,7 +89,7 @@ def _build_summary(
         from docs_agent.config import ANTHROPIC_MODEL
         w(f"| Provider | {provider} ({ANTHROPIC_MODEL}) |")
     elif provider == "openai":
-        from docs_agent.config import OPENAI_MODEL, OPENAI_ASSESSMENT_MODEL
+        from docs_agent.config import OPENAI_ASSESSMENT_MODEL, OPENAI_MODEL
         w(f"| Provider | {provider} ({OPENAI_MODEL} + {OPENAI_ASSESSMENT_MODEL}) |")
     else:
         w(f"| Provider | {provider} |")
@@ -149,7 +153,7 @@ def _write_page_file(status_dir: Path, r: PageResult) -> None:
     path.write_text("\n".join(lines))
 
 
-def _write_failed_detail(w, r: PageResult) -> None:
+def _write_failed_detail(w: _LineAppender, r: PageResult) -> None:
     if r.failure_reason:
         w(f"**Reason:** {r.failure_reason}")
         w("")
@@ -165,13 +169,13 @@ def _write_failed_detail(w, r: PageResult) -> None:
     _write_steps_table(w, r.steps)
 
 
-def _write_passed_detail(w, r: PageResult) -> None:
+def _write_passed_detail(w: _LineAppender, r: PageResult) -> None:
     w(f"*{_fmt_duration(r.duration)} | {r.api_calls} API calls | {r.tokens_used:,} tokens*")
     w("")
     _write_steps_table(w, r.steps)
 
 
-def _write_steps_table(w, steps: list[StepResult]) -> None:
+def _write_steps_table(w: _LineAppender, steps: list[StepResult]) -> None:
     if not steps:
         return
     w("| Step | Result | Error |")

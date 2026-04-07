@@ -6,7 +6,6 @@ import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
-
 # ---------------------------------------------------------------------------
 # Normalized types shared between providers and the agent loop
 # ---------------------------------------------------------------------------
@@ -65,7 +64,7 @@ class Provider(ABC):
         """
         return None
 
-    def close(self) -> None:
+    def close(self) -> None:  # noqa: B027
         """Clean up any resources. Default is a no-op."""
 
 
@@ -75,7 +74,7 @@ class Provider(ABC):
 
 def get_provider(name: str | None = None) -> Provider:
     """Instantiate a provider by name (defaults to AGENT_PROVIDER env var)."""
-    provider_name = (name or os.environ.get("AGENT_PROVIDER", "anthropic")).lower()
+    provider_name = (name or os.environ.get("AGENT_PROVIDER") or "anthropic").lower()
 
     if provider_name == "anthropic":
         from docs_agent.providers.anthropic_provider import AnthropicProvider
