@@ -67,7 +67,6 @@ def _build_startup_script(env: dict[str, str]) -> str:
         upload_logs_cmd=f"gsutil cp /var/log/docsagent.log gs://{bucket}/results/$TIMESTAMP/runner.log || true",
         download_code_cmd=f"gsutil cp gs://{bucket}/docsagent-code.tar.gz /opt/docsagent/code.tar.gz",
         upload_results_cmd=(
-            f'aws s3 sync reports/ gs://{bucket}/results/$TIMESTAMP/reports/ 2>/dev/null || '
             f'gsutil -m cp -r reports/ gs://{bucket}/results/$TIMESTAMP/\n'
             f'    echo "$TIMESTAMP" | gsutil cp - gs://{bucket}/latest.txt\n'
             f'    echo "Results uploaded to gs://{bucket}/results/$TIMESTAMP/"'
