@@ -25,7 +25,7 @@ AGENT_PROVIDER = os.environ.get("AGENT_PROVIDER", "anthropic")
 # ---------------------------------------------------------------------------
 # Anthropic API
 # ---------------------------------------------------------------------------
-ANTHROPIC_MODEL = "claude-sonnet-4-6"
+ANTHROPIC_MODEL = "claude-sonnet-5"
 ANTHROPIC_BETA = "computer-use-2025-11-24"
 ANTHROPIC_MAX_TOKENS = 16384
 
