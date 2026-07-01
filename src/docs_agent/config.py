@@ -32,7 +32,7 @@ ANTHROPIC_MAX_TOKENS = 16384
 # ---------------------------------------------------------------------------
 # OpenAI API
 # ---------------------------------------------------------------------------
-OPENAI_MODEL = "computer-use-preview"
+OPENAI_MODEL = "gpt-5.5"  # native computer-use via the `computer` tool (Responses API)
 OPENAI_ASSESSMENT_MODEL = "gpt-5.2"
 OPENAI_MAX_TOKENS = 16384
 

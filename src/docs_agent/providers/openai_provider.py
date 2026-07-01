@@ -1,4 +1,4 @@
-"""OpenAI CUA (Computer Use Agent) provider."""
+"""OpenAI computer-use provider (gpt-5.5 native `computer` tool)."""
 
 from __future__ import annotations
 
@@ -43,7 +43,15 @@ Rules:
 
 
 class OpenAIProvider(Provider):
-    """Provider backed by the OpenAI Responses API with computer-use-preview."""
+    """Provider backed by the OpenAI Responses API with the gpt-5.5 `computer` tool.
+
+    gpt-5.5 batches actions: each ``computer_call`` output item carries an
+    ``actions`` list (the legacy singular ``action`` field is always null), and
+    the API expects exactly one ``computer_call_output`` per ``call_id``. This
+    provider therefore emits a single normalized ``ToolCall`` per ``computer_call``
+    whose input is ``{"actions": [...]}``; the tool dispatcher executes the whole
+    batch and returns one screenshot reflecting the final desktop state.
+    """
 
     def __init__(self) -> None:
         self._client: openai.OpenAI = openai.OpenAI(max_retries=2)
@@ -59,14 +67,8 @@ class OpenAIProvider(Provider):
         self._system = system_prompt
         self._display_width = display_width
         self._display_height = display_height
-        self._tools = [
-            {
-                "type": "computer_use_preview",
-                "display_width": display_width,
-                "display_height": display_height,
-                "environment": "linux",
-            },
-        ]
+        # gpt-5.5's native computer tool takes no display/environment fields.
+        self._tools = [{"type": "computer"}]
 
     def send_initial(self, user_message: str) -> ProviderResponse:
         from docs_agent.docker_manager import take_screenshot
@@ -77,6 +79,7 @@ class OpenAIProvider(Provider):
             content.append({
                 "type": "input_image",
                 "image_url": f"data:image/png;base64,{b64}",
+                "detail": "original",
             })
 
         response = self._client.responses.create(  # type: ignore[call-overload]
@@ -94,10 +97,7 @@ class OpenAIProvider(Provider):
     def send_tool_results(
         self, results: list[ToolResult], nudge_text: str | None = None
     ) -> ProviderResponse:
-        items: list[dict] = []
-        for r in results:
-            output = self._build_output(r)
-            items.append(output)
+        items: list[dict] = [self._build_output(r) for r in results]
 
         if nudge_text:
             items.append({"role": "user", "content": [{"type": "input_text", "text": nudge_text}]})
@@ -115,7 +115,7 @@ class OpenAIProvider(Provider):
         return self._parse_response(response)
 
     def generate_assessment(self, last_screenshot_b64: str | None = None) -> str | None:
-        """Call gpt-5.2 to produce a structured assessment from the CUA action log."""
+        """Call the assessment model to produce a structured assessment from the action log."""
         if not self._action_log:
             return None
 
@@ -157,76 +157,81 @@ class OpenAIProvider(Provider):
     # ------------------------------------------------------------------
 
     def _build_output(self, result: ToolResult) -> dict:
-        """Build a computer_call_output item from a ToolResult.
+        """Build a single computer_call_output item from a ToolResult.
 
-        Per the docs, the output field is a single image object, and
-        pending_safety_checks from the previous response must be acknowledged.
+        The API expects one output per call_id; a computer_call may have batched
+        several actions, but the ToolResult carries the single post-batch
+        screenshot. Pending safety checks from the previous response are
+        acknowledged here.
         """
         screenshot_b64: str | None = None
-        text_parts: list[str] = []
         for block in result.content:
             if block.get("type") == "image" and block.get("source", {}).get("type") == "base64":
                 screenshot_b64 = block["source"]["data"]
-            elif block.get("type") == "text":
-                text_parts.append(block["text"])
 
         output: dict = {
             "type": "computer_call_output",
             "call_id": result.call_id,
         }
 
-        # Acknowledge any pending safety checks from the previous response
+        # Acknowledge any pending safety checks from the previous response.
         if self._pending_safety_checks:
-            output["acknowledged_safety_checks"] = [
-                sc["id"] for sc in self._pending_safety_checks
-            ]
+            output["acknowledged_safety_checks"] = [sc["id"] for sc in self._pending_safety_checks]
             self._pending_safety_checks = []
+
+        # A screenshot is always expected back; fetch a fresh one if the tool
+        # result carried only text (e.g. a bash-only action).
+        if screenshot_b64 is None:
+            from docs_agent.docker_manager import take_screenshot
+            screenshot_b64 = take_screenshot()
 
         if screenshot_b64:
             output["output"] = {
                 "type": "computer_screenshot",
                 "image_url": f"data:image/png;base64,{screenshot_b64}",
+                "detail": "original",
             }
-        elif text_parts:
-            # Text-only result (e.g. bash output) — still need a screenshot
-            from docs_agent.docker_manager import take_screenshot
-            fresh_b64 = take_screenshot()
-            if fresh_b64:
-                output["output"] = {
-                    "type": "computer_screenshot",
-                    "image_url": f"data:image/png;base64,{fresh_b64}",
-                }
 
         return output
 
     def _parse_response(self, response: Any) -> ProviderResponse:
-        """Parse an OpenAI Responses API response into a ProviderResponse."""
+        """Parse an OpenAI Responses API response into a ProviderResponse.
+
+        Each ``computer_call`` becomes one ToolCall whose input bundles all of
+        the call's batched actions under an ``actions`` key.
+        """
         tool_calls: list[ToolCall] = []
         text_parts: list[str] = []
         pending_safety: list[dict] = []
 
         for item in response.output:
             if item.type == "computer_call":
-                normalized = self._normalize_action(item.action)
+                dumped = item.model_dump()
+                actions = dumped.get("actions") or []
+                normalized = [self._normalize_action(a) for a in actions]
                 tool_calls.append(ToolCall(
-                    id=item.call_id,
-                    name=normalized["tool_name"],
-                    input=normalized["input"],
+                    id=dumped["call_id"],
+                    name="computer",
+                    input={"actions": normalized},
                 ))
-                self._action_log.append(self._describe_action(item.action))
-                for check in getattr(item, "pending_safety_checks", []):
-                    log.info("OpenAI safety check: %s — %s", check.code, check.message)
-                    pending_safety.append({"id": check.id, "code": check.code, "message": check.message})
+                for a in actions:
+                    self._action_log.append(self._describe_action(a))
+                for check in dumped.get("pending_safety_checks") or []:
+                    log.info("OpenAI safety check: %s — %s", check.get("code"), check.get("message"))
+                    pending_safety.append(check)
             elif item.type == "reasoning":
-                summary = getattr(item, "summary", None)
-                if summary:
-                    for s in summary:
-                        log.debug("CUA reasoning: %s", getattr(s, "text", str(s))[:300])
+                for s in getattr(item, "summary", None) or []:
+                    log.debug("CUA reasoning: %s", getattr(s, "text", str(s))[:300])
+            elif item.type == "message":
+                for block in getattr(item, "content", None) or []:
+                    text = getattr(block, "text", None)
+                    if text:
+                        text_parts.append(text)
             elif item.type == "text":
                 text_parts.append(item.text)
 
         tokens = 0
-        if hasattr(response, "usage") and response.usage:
+        if getattr(response, "usage", None):
             tokens = (getattr(response.usage, "input_tokens", 0) or 0) + (
                 getattr(response.usage, "output_tokens", 0) or 0
             )
@@ -235,7 +240,7 @@ class OpenAIProvider(Provider):
         if done and text_parts:
             log.info("CUA model finished with text: %s", " | ".join(t[:200] for t in text_parts))
 
-        # Store safety checks — will be acknowledged in the next _build_output call
+        # Store safety checks — acknowledged in the next _build_output call.
         self._pending_safety_checks = pending_safety
 
         return ProviderResponse(
@@ -246,71 +251,64 @@ class OpenAIProvider(Provider):
         )
 
     @staticmethod
-    def _describe_action(action: Any) -> str:
-        """Produce a human-readable one-liner describing a CUA action."""
-        t = action.type
+    def _describe_action(action: dict) -> str:
+        """Produce a human-readable one-liner describing a CUA action dict."""
+        t = action.get("type", "unknown")
+        x, y = action.get("x"), action.get("y")
         if t == "click":
-            return f"click({action.button}) at ({action.x}, {action.y})"
+            mods = "+".join(action.get("keys") or [])
+            prefix = f"{mods}+" if mods else ""
+            return f"click({prefix}{action.get('button')}) at ({x}, {y})"
         if t == "double_click":
-            return f"double_click at ({action.x}, {action.y})"
+            return f"double_click at ({x}, {y})"
         if t == "type":
-            text = action.text
+            text = action.get("text", "")
             if len(text) > 80:
                 text = text[:77] + "..."
             return f'type "{text}"'
         if t == "keypress":
-            keys = action.keys if hasattr(action, "keys") else []
-            return f"keypress {'+'.join(keys)}"
+            return f"keypress {'+'.join(action.get('keys') or [])}"
         if t == "scroll":
-            return f"scroll at ({action.x}, {action.y}) dy={getattr(action, 'scroll_y', 0)}"
+            dy = action.get("scroll_y", action.get("scrollY", 0))
+            return f"scroll at ({x}, {y}) dy={dy}"
         if t == "screenshot":
             return "screenshot"
         if t == "drag":
-            path = action.path
-            start = path[0] if path else None
-            end = path[-1] if len(path) > 1 else start
-            return f"drag ({getattr(start, 'x', '?')},{getattr(start, 'y', '?')}) -> ({getattr(end, 'x', '?')},{getattr(end, 'y', '?')})"
+            path = action.get("path") or []
+            start = _point(path[0]) if path else (None, None)
+            end = _point(path[-1]) if len(path) > 1 else start
+            return f"drag {start} -> {end}"
         if t == "wait":
-            return f"wait {getattr(action, 'duration', '?')}s"
+            return f"wait {action.get('duration', '?')}s"
         if t == "move":
-            return f"move to ({action.x}, {action.y})"
+            return f"move to ({x}, {y})"
         return f"{t} (unknown)"
 
-    def _normalize_action(self, action: Any) -> dict:
-        """Map an OpenAI CUA action to an Anthropic-style tool name + input dict."""
-        action_type = action.type
+    def _normalize_action(self, action: dict) -> dict:
+        """Map an OpenAI CUA action dict to an Anthropic-style computer input dict."""
+        t = action.get("type")
+        x, y = action.get("x", 0), action.get("y", 0)
+        modifiers = action.get("keys") or []
 
-        if action_type == "click":
+        if t == "click":
             button_map = {"left": "left_click", "right": "right_click", "middle": "middle_click"}
-            anthropic_action = button_map.get(action.button, "left_click")
-            return {
-                "tool_name": "computer",
-                "input": {"action": anthropic_action, "coordinate": [action.x, action.y]},
-            }
+            inp: dict = {"action": button_map.get(action.get("button") or "left", "left_click"), "coordinate": [x, y]}
+            if modifiers:
+                inp["modifiers"] = modifiers
+            return inp
 
-        if action_type == "double_click":
-            return {
-                "tool_name": "computer",
-                "input": {"action": "double_click", "coordinate": [action.x, action.y]},
-            }
+        if t == "double_click":
+            return {"action": "double_click", "coordinate": [x, y]}
 
-        if action_type == "type":
-            return {
-                "tool_name": "computer",
-                "input": {"action": "type", "text": action.text},
-            }
+        if t == "type":
+            return {"action": "type", "text": action.get("text", "")}
 
-        if action_type == "keypress":
-            keys = action.keys if hasattr(action, "keys") else []
-            key_str = "+".join(keys)
-            return {
-                "tool_name": "computer",
-                "input": {"action": "key", "text": key_str},
-            }
+        if t == "keypress":
+            return {"action": "key", "text": "+".join(action.get("keys") or [])}
 
-        if action_type == "scroll":
-            scroll_x = getattr(action, "scroll_x", 0) or 0
-            scroll_y = getattr(action, "scroll_y", 0) or 0
+        if t == "scroll":
+            scroll_x = action.get("scroll_x", action.get("scrollX", 0)) or 0
+            scroll_y = action.get("scroll_y", action.get("scrollY", 0)) or 0
             if abs(scroll_y) >= abs(scroll_x):
                 direction = "down" if scroll_y > 0 else "up"
                 amount = max(1, abs(scroll_y) // 30)
@@ -318,52 +316,35 @@ class OpenAIProvider(Provider):
                 direction = "right" if scroll_x > 0 else "left"
                 amount = max(1, abs(scroll_x) // 30)
             return {
-                "tool_name": "computer",
-                "input": {
-                    "action": "scroll",
-                    "coordinate": [action.x, action.y],
-                    "scroll_direction": direction,
-                    "scroll_amount": amount,
-                },
+                "action": "scroll",
+                "coordinate": [x, y],
+                "scroll_direction": direction,
+                "scroll_amount": amount,
             }
 
-        if action_type == "drag":
-            path = action.path
-            start = path[0] if path else None
-            end = path[-1] if len(path) > 1 else start
-            sx = getattr(start, "x", 0) if start else 0
-            sy = getattr(start, "y", 0) if start else 0
-            ex = getattr(end, "x", 0) if end else 0
-            ey = getattr(end, "y", 0) if end else 0
-            return {
-                "tool_name": "computer",
-                "input": {
-                    "action": "left_click_drag",
-                    "start_coordinate": [sx, sy],
-                    "coordinate": [ex, ey],
-                },
-            }
+        if t == "drag":
+            path = action.get("path") or []
+            sx, sy = _point(path[0]) if path else (0, 0)
+            ex, ey = _point(path[-1]) if len(path) > 1 else (sx, sy)
+            return {"action": "left_click_drag", "start_coordinate": [sx, sy], "coordinate": [ex, ey]}
 
-        if action_type == "screenshot":
-            return {
-                "tool_name": "computer",
-                "input": {"action": "screenshot"},
-            }
+        if t == "screenshot":
+            return {"action": "screenshot"}
 
-        if action_type == "wait":
-            return {
-                "tool_name": "computer",
-                "input": {"action": "wait", "duration": getattr(action, "duration", 2)},
-            }
+        if t == "wait":
+            return {"action": "wait", "duration": action.get("duration", 2)}
 
-        if action_type == "move":
-            return {
-                "tool_name": "computer",
-                "input": {"action": "mouse_move", "coordinate": [action.x, action.y]},
-            }
+        if t == "move":
+            return {"action": "mouse_move", "coordinate": [x, y]}
 
-        log.warning("Unknown OpenAI CUA action type: %s", action_type)
-        return {
-            "tool_name": "computer",
-            "input": {"action": action_type},
-        }
+        log.warning("Unknown OpenAI CUA action type: %s", t)
+        return {"action": t or "screenshot"}
+
+
+def _point(p: Any) -> tuple[Any, Any]:
+    """Extract (x, y) from a drag path point (dict or [x, y] pair)."""
+    if isinstance(p, dict):
+        return p.get("x", 0), p.get("y", 0)
+    if isinstance(p, list | tuple) and len(p) >= 2:
+        return p[0], p[1]
+    return 0, 0

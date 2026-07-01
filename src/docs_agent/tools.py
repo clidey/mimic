@@ -10,6 +10,20 @@ from docs_agent.docker_manager import exec_in_desktop, take_screenshot, xdotool
 
 log = logging.getLogger(__name__)
 
+# Map OpenAI CUA modifier-key names to xdotool keysyms.
+_XDOTOOL_MODIFIERS = {
+    "shift": "shift",
+    "ctrl": "ctrl",
+    "control": "ctrl",
+    "alt": "alt",
+    "option": "alt",
+    "cmd": "super",
+    "command": "super",
+    "super": "super",
+    "win": "super",
+    "meta": "super",
+}
+
 
 # ---------------------------------------------------------------------------
 # Screenshot helper
@@ -33,7 +47,12 @@ def execute_computer_tool(action: str, **kwargs: Any) -> list[dict[str, Any]]:
 
     if action == "left_click":
         x, y = kwargs["coordinate"]
-        xdotool(f"mousemove {x} {y} click 1")
+        modifiers = kwargs.get("modifiers") or []
+        if modifiers:
+            keys = "+".join(_XDOTOOL_MODIFIERS.get(m.lower(), m.lower()) for m in modifiers)
+            xdotool(f"mousemove {x} {y} keydown {keys} click 1 keyup {keys}")
+        else:
+            xdotool(f"mousemove {x} {y} click 1")
     elif action == "right_click":
         x, y = kwargs["coordinate"]
         xdotool(f"mousemove {x} {y} click 3")
@@ -76,6 +95,24 @@ def execute_computer_tool(action: str, **kwargs: Any) -> list[dict[str, Any]]:
         return [{"type": "text", "text": f"Unknown computer action: {action}"}]
 
     # For non-screenshot actions, auto-take a screenshot to show result
+    return screenshot_result(take_screenshot())
+
+
+def execute_computer_batch(actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Execute a batch of computer actions, returning one final screenshot.
+
+    gpt-5.5 emits several actions per computer_call and expects a single
+    screenshot back. Each action is dispatched to xdotool; intermediate
+    screenshots are discarded and only the final desktop state is returned.
+    """
+    for action in actions:
+        act = dict(action)
+        name = act.pop("action", "")
+        try:
+            execute_computer_tool(name, **act)
+        except Exception as e:
+            log.warning("Batched action %s failed: %s", name, e)
+            return [{"type": "text", "text": f"Action {name!r} failed: {type(e).__name__}: {e}"}]
     return screenshot_result(take_screenshot())
 
 
@@ -124,6 +161,10 @@ def execute_text_editor_tool(command: str, **kwargs: Any) -> list[dict[str, Any]
 def dispatch_tool(tool_name: str, tool_input: dict[str, Any]) -> list[dict[str, Any]]:
     """Route a tool call to the appropriate handler."""
     if tool_name == "computer":
+        # OpenAI gpt-5.5 batches actions: input is {"actions": [ {action, ...}, ... ]}.
+        # Execute the whole batch and return a single screenshot of the final state.
+        if "actions" in tool_input:
+            return execute_computer_batch(tool_input["actions"])
         action = tool_input.pop("action", "")
         return execute_computer_tool(action, **tool_input)
     elif tool_name == "bash":
