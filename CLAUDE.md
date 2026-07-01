@@ -32,6 +32,9 @@ uv run docs-agent --project examples/whodb --list-sessions
 # Verbose/debug logging
 uv run docs-agent --project examples/whodb -v
 
+# JSON-formatted logs (for cloud/structured log capture)
+uv run docs-agent --project examples/whodb --json-log
+
 # Launch on cloud spot instance (requires .env with cloud config)
 uv run docs-agent-cloud --cloud gcp --provider anthropic
 uv run docs-agent-cloud --cloud aws --provider openai
@@ -46,10 +49,13 @@ The agent follows a pipeline: **load project → parse docs → orchestrate sess
 ### Key modules (all in `src/docs_agent/`)
 
 - **`project.py`** — Loads `qa-project.yaml` into a `ProjectConfig` dataclass. Resolves relative paths, detects compose files, expands page glob patterns (e.g. `ai/*`), and supports auto-grouping pages by directory prefix when no sessions are defined.
-- **`parser.py`** — Parses a docs file (e.g. `llms.txt`) delimited by `# filename.mdx` headers into `Page` objects. Parameterized by source path and page format.
-- **`config.py`** — Runtime constants: desktop container name, network name, display settings, provider config (model names, API settings), and agent loop parameters. No project-specific config.
+- **`parser.py`** — Parses a concatenated docs file (e.g. `llms.txt`) delimited by `# filename.mdx` headers into `Page` objects. Used for FILE/URL docs modes (see `project.py` `DocsMode`).
+- **`config.py`** — Runtime constants: desktop container name, network name, display settings, provider config (model names, API settings), agent loop parameters, and `ASSESSMENT_FORMAT` (the assessment template shared by prompts and providers). No project-specific config.
 - **`orchestrator.py`** — Top-level runner. Takes `ProjectConfig`, sets up infrastructure per session via Docker Compose + desktop sandbox, iterates pages, calls the agent, collects recordings, generates reports.
-- **`agent.py`** — The computer-use agent loop. Has provider-specific system prompts: `_build_anthropic_prompt` (full assessment format, general instructions) and `_build_cua_prompt` (action-oriented, explicit desktop guidance, no assessment format). Dispatches tool calls to Docker exec commands (screenshots via `scrot`, mouse/keyboard via `xdotool`). For Anthropic, parses the structured assessment directly from model output. For OpenAI, a follow-up `gpt-5.2` call generates the assessment from the action log.
+- **`agent.py`** — The computer-use agent loop (`test_page()`). Wires together the prompt, provider, tool dispatch, and assessment parsing; runs the iteration loop and screen recording. Prompt building, tool execution, and assessment parsing now live in separate modules (below).
+- **`prompts.py`** — System-prompt builders. `build_system_prompt` dispatches on provider: `_build_anthropic_prompt` (full assessment format) vs `_build_cua_prompt` (action-oriented, explicit desktop guidance, no assessment format). Also `build_initial_message`.
+- **`tools.py`** — `dispatch_tool` routes `computer`/`bash`/`str_replace_based_edit_tool` calls to Docker exec handlers (screenshots via `scrot`, mouse/keyboard via `xdotool`).
+- **`assessment.py`** — Parses the structured assessment (`STATUS`/`STEPS`/`FAILURE_TYPE`/`FAILURE_REASON`) from model output into a `PageResult` via regex. `STATUS_RE` also gates whether OpenAI's `gpt-5.2` follow-up assessment is triggered.
 - **`providers/`** — Provider abstraction for interchangeable LLM backends. `__init__.py` defines the `Provider` ABC, normalized types (`ToolCall`, `ToolResult`, `ProviderResponse`), and a `get_provider()` factory. `anthropic_provider.py` wraps the Claude computer-use API. `openai_provider.py` wraps the OpenAI CUA (Responses API) with `reasoning` summaries, safety check acknowledgment, and a `generate_assessment()` method that calls `gpt-5.2` to produce structured results.
 - **`docker_manager.py`** — All Docker operations via subprocess (no docker-py). Manages the desktop sandbox container (built from the bundled `sandbox/Dockerfile`) and delegates app services to Docker Compose (`compose_up`/`compose_down`). `prepare_desktop()` pre-launches Firefox and a terminal for CUA models. Also handles screenshots, xdotool exec, and ffmpeg screen recording.
 - **`report.py`** — Generates timestamped report directories under `reports/` with `summary.md` and per-page Markdown files organized into `passed/`, `failed/`, `skipped/` subdirectories, plus `.mp4` recordings.
@@ -61,7 +67,7 @@ The agent follows a pipeline: **load project → parse docs → orchestrate sess
 
 ### Project config (`qa-project.yaml`)
 
-Each project provides: `name`, `docs` (path to llms.txt), `environment` (free-text for system prompt), and optional `sessions` with page slug lists/globs and `compose_profiles`. A `docker-compose.yml` beside it defines the app services.
+Each project provides: `name`, `environment` (free-text for system prompt), and optional `sessions` with page slug lists/globs and `compose_profiles`. Docs are sourced one of four ways (`project.py` `DocsMode`): `docs` pointing at a concatenated file (FILE) or a directory (DIRECTORY); or `docs_url` pointing at a remote file (URL) or a live docs base URL the agent browses (BROWSE). BROWSE mode requires explicit `sessions`. A `docker-compose.yml` beside the project file defines the app services.
 
 ### Agent loop details
 
