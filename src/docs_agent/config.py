@@ -28,6 +28,8 @@ AGENT_PROVIDER = os.environ.get("AGENT_PROVIDER", "anthropic")
 ANTHROPIC_MODEL = "claude-sonnet-5"
 ANTHROPIC_BETA = "computer-use-2025-11-24"
 ANTHROPIC_MAX_TOKENS = 16384
+# Reasoning effort (output_config). One of: low, medium, high, xhigh, max.
+ANTHROPIC_EFFORT = os.environ.get("ANTHROPIC_EFFORT", "medium")
 
 # ---------------------------------------------------------------------------
 # OpenAI API
@@ -35,6 +37,8 @@ ANTHROPIC_MAX_TOKENS = 16384
 OPENAI_MODEL = "gpt-5.5"  # native computer-use via the `computer` tool (Responses API)
 OPENAI_ASSESSMENT_MODEL = "gpt-5.2"
 OPENAI_MAX_TOKENS = 16384
+# Reasoning effort (reasoning.effort). One of: low, medium, high, xhigh.
+OPENAI_EFFORT = os.environ.get("OPENAI_EFFORT", "medium")
 
 # ---------------------------------------------------------------------------
 # Agent loop

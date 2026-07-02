@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-import anthropic
+from typing import Any, cast
 
-from docs_agent.config import ANTHROPIC_BETA, ANTHROPIC_MAX_TOKENS, ANTHROPIC_MODEL
+import anthropic
+from anthropic.types.beta import BetaOutputConfigParam
+
+from docs_agent.config import ANTHROPIC_BETA, ANTHROPIC_EFFORT, ANTHROPIC_MAX_TOKENS, ANTHROPIC_MODEL
 from docs_agent.providers import Provider, ProviderResponse, ToolCall, ToolResult
 
 
@@ -62,6 +65,7 @@ class AnthropicProvider(Provider):
             messages=self._messages,  # type: ignore[arg-type]
             tools=self._tools,  # type: ignore[arg-type]
             betas=[ANTHROPIC_BETA],
+            output_config=BetaOutputConfigParam(effort=cast(Any, ANTHROPIC_EFFORT)),
         )
 
         tool_calls: list[ToolCall] = []

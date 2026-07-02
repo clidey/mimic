@@ -7,7 +7,13 @@ from typing import Any
 
 import openai
 
-from docs_agent.config import ASSESSMENT_FORMAT, OPENAI_ASSESSMENT_MODEL, OPENAI_MAX_TOKENS, OPENAI_MODEL
+from docs_agent.config import (
+    ASSESSMENT_FORMAT,
+    OPENAI_ASSESSMENT_MODEL,
+    OPENAI_EFFORT,
+    OPENAI_MAX_TOKENS,
+    OPENAI_MODEL,
+)
 from docs_agent.providers import Provider, ProviderResponse, ToolCall, ToolResult
 
 log = logging.getLogger(__name__)
@@ -88,7 +94,7 @@ class OpenAIProvider(Provider):
             input=[{"role": "user", "content": content}],
             tools=self._tools,
             truncation="auto",
-            reasoning={"summary": "concise"},
+            reasoning={"summary": "concise", "effort": OPENAI_EFFORT},
             max_output_tokens=OPENAI_MAX_TOKENS,
         )
         self._previous_response_id = response.id
@@ -108,7 +114,7 @@ class OpenAIProvider(Provider):
             input=items,
             tools=self._tools,
             truncation="auto",
-            reasoning={"summary": "concise"},
+            reasoning={"summary": "concise", "effort": OPENAI_EFFORT},
             max_output_tokens=OPENAI_MAX_TOKENS,
         )
         self._previous_response_id = response.id
