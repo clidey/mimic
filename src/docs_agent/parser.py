@@ -76,13 +76,15 @@ def parse_pages_from_dir(source_dir: Path, page_format: str = "mdx") -> list[Pag
             slug = slug.removesuffix(ext)
         content = filepath.read_text()
         lines = content.splitlines()
-        pages.append(Page(
-            slug=slug,
-            filename=str(rel),
-            content=content,
-            line_start=0,
-            line_end=max(len(lines) - 1, 0),
-        ))
+        pages.append(
+            Page(
+                slug=slug,
+                filename=str(rel),
+                content=content,
+                line_start=0,
+                line_end=max(len(lines) - 1, 0),
+            )
+        )
     return pages
 
 
@@ -105,13 +107,15 @@ def make_url_pages(docs_url: str, slugs: list[str]) -> list[Page]:
     """
     pages: list[Page] = []
     for slug in slugs:
-        pages.append(Page(
-            slug=slug,
-            filename=slug,
-            content="",
-            line_start=0,
-            line_end=0,
-        ))
+        pages.append(
+            Page(
+                slug=slug,
+                filename=slug,
+                content="",
+                line_start=0,
+                line_end=0,
+            )
+        )
     return pages
 
 

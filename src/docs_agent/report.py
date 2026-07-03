@@ -54,6 +54,7 @@ def generate_report(results: list[PageResult], run_name: str | None = None) -> P
 # Summary report
 # ---------------------------------------------------------------------------
 
+
 def _build_summary(
     results: list[PageResult],
     ts: str,
@@ -87,9 +88,11 @@ def _build_summary(
     provider = os.environ.get("AGENT_PROVIDER", "anthropic")
     if provider == "anthropic":
         from docs_agent.config import ANTHROPIC_MODEL
+
         w(f"| Provider | {provider} ({ANTHROPIC_MODEL}) |")
     elif provider == "openai":
         from docs_agent.config import OPENAI_ASSESSMENT_MODEL, OPENAI_MODEL
+
         w(f"| Provider | {provider} ({OPENAI_MODEL} + {OPENAI_ASSESSMENT_MODEL}) |")
     else:
         w(f"| Provider | {provider} |")
@@ -127,6 +130,7 @@ def _build_summary(
 # ---------------------------------------------------------------------------
 # Individual page reports
 # ---------------------------------------------------------------------------
+
 
 def _write_page_file(status_dir: Path, r: PageResult) -> None:
     status_dir.mkdir(parents=True, exist_ok=True)
@@ -190,6 +194,7 @@ def _write_steps_table(w: _LineAppender, steps: list[StepResult]) -> None:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def slug_to_filename(slug: str) -> str:
     """Convert 'data/sorting-pagination' to 'data--sorting-pagination'."""

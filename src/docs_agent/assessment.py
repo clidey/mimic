@@ -37,11 +37,13 @@ def parse_result(
 
     steps = []
     for sm in STEP_RE.finditer(text):
-        steps.append(StepResult(
-            description=sm.group(1).strip(),
-            passed=sm.group(2).upper() == "PASS",
-            error=sm.group(3),
-        ))
+        steps.append(
+            StepResult(
+                description=sm.group(1).strip(),
+                passed=sm.group(2).upper() == "PASS",
+                error=sm.group(3),
+            )
+        )
 
     failure_type = None
     ft = FAILURE_TYPE_RE.search(text)

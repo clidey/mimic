@@ -18,6 +18,7 @@ from docs_agent.project import (
 # load_project
 # ---------------------------------------------------------------------------
 
+
 class TestLoadProject:
     def test_loads_minimal_config(self, tmp_path: Path) -> None:
         docs_dir = tmp_path / "docs"
@@ -25,10 +26,7 @@ class TestLoadProject:
         (docs_dir / "getting-started.mdx").write_text("Hello.\n")
 
         (tmp_path / "qa-project.yaml").write_text(
-            "name: test-project\n"
-            "docs: docs/\n"
-            "environment: |\n"
-            "  - App at http://app:3000\n"
+            "name: test-project\ndocs: docs/\nenvironment: |\n  - App at http://app:3000\n"
         )
 
         project = load_project(tmp_path)
@@ -40,9 +38,7 @@ class TestLoadProject:
 
     def test_loads_file_mode(self, tmp_path: Path) -> None:
         (tmp_path / "llms.txt").write_text("# page.mdx\nContent.\n")
-        (tmp_path / "qa-project.yaml").write_text(
-            "name: file-test\ndocs: llms.txt\n"
-        )
+        (tmp_path / "qa-project.yaml").write_text("name: file-test\ndocs: llms.txt\n")
 
         project = load_project(tmp_path)
 
@@ -51,9 +47,7 @@ class TestLoadProject:
         assert project.docs_source.name == "llms.txt"
 
     def test_loads_url_mode(self, tmp_path: Path) -> None:
-        (tmp_path / "qa-project.yaml").write_text(
-            "name: url-test\ndocs: https://example.com/llms.txt\n"
-        )
+        (tmp_path / "qa-project.yaml").write_text("name: url-test\ndocs: https://example.com/llms.txt\n")
 
         project = load_project(tmp_path)
 
@@ -77,9 +71,7 @@ class TestLoadProject:
         assert len(project.sessions) == 1
 
     def test_browse_mode_without_sessions_raises(self, tmp_path: Path) -> None:
-        (tmp_path / "qa-project.yaml").write_text(
-            "name: bad\ndocs_url: https://docs.example.com\n"
-        )
+        (tmp_path / "qa-project.yaml").write_text("name: bad\ndocs_url: https://docs.example.com\n")
 
         with pytest.raises(ValueError, match="sessions.*required"):
             load_project(tmp_path)
@@ -127,6 +119,7 @@ class TestLoadProject:
 # resolve_session_globs
 # ---------------------------------------------------------------------------
 
+
 class TestResolveSessionGlobs:
     def test_expands_glob(self) -> None:
         sessions = [SessionConfig(name="Features", page_slugs=["features/*"])]
@@ -163,6 +156,7 @@ class TestResolveSessionGlobs:
 # ---------------------------------------------------------------------------
 # auto_group_sessions
 # ---------------------------------------------------------------------------
+
 
 class TestAutoGroupSessions:
     def test_groups_by_prefix(self) -> None:

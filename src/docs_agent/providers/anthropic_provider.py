@@ -56,9 +56,7 @@ class AnthropicProvider(Provider):
         self._messages = [{"role": "user", "content": user_message}]
         return self._call()
 
-    def send_tool_results(
-        self, results: list[ToolResult], nudge_text: str | None = None
-    ) -> ProviderResponse:
+    def send_tool_results(self, results: list[ToolResult], nudge_text: str | None = None) -> ProviderResponse:
         content: list[dict] = [
             {
                 "type": "tool_result",

@@ -70,6 +70,7 @@ def package_agent_code() -> Path:
 # Shared startup script template for cloud VMs
 # ---------------------------------------------------------------------------
 
+
 def build_startup_script(
     *,
     provider: str,
@@ -107,7 +108,7 @@ echo "=== docs-agent startup $(date) ==="
 
 # Install Docker
 apt-get update -qq
-apt-get install -y -qq docker.io docker-compose-v2 containerd curl{' ' + extra_packages if extra_packages else ''}
+apt-get install -y -qq docker.io docker-compose-v2 containerd curl{" " + extra_packages if extra_packages else ""}
 systemctl start docker
 systemctl enable docker
 

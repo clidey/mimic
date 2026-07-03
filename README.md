@@ -18,7 +18,7 @@ Supports **Anthropic Claude** and **OpenAI CUA**. [How it works &darr;](#how-it-
 
 ```bash
 # 1. Clone and install
-git clone <repo-url> && cd qa-agent
+git clone <repo-url> && cd mimic
 uv sync
 
 # 2. Add your API key
@@ -146,14 +146,20 @@ The `external: true` network is required — the agent creates `docsagent-net` s
 
 ### Providers
 
-**Anthropic** (default) — `claude-sonnet-4-6` with the computer-use beta API. Single model handles actions and assessment.
+**Anthropic** (default) — `claude-sonnet-5` with the computer-use beta API. Single model handles actions and assessment. Can run against the first-party Anthropic API or **Amazon Bedrock** (`ANTHROPIC_BACKEND=bedrock`, uses ambient AWS creds + `AWS_REGION`). Note: on Bedrock only some models support the computer tool — `anthropic.claude-opus-4-7` works (and is the Bedrock default); `claude-sonnet-5`/`claude-opus-4-8` currently reject it.
 
-**OpenAI** — two-model approach: `computer-use-preview` for desktop actions, `gpt-5.2` for structured assessment. The agent pre-launches Firefox and a terminal so the CUA model can focus on browser tasks where it performs best.
+**OpenAI** — two-model approach: `gpt-5.5`'s native `computer` tool for desktop actions, `gpt-5.2` for structured assessment. The agent pre-launches Firefox and a terminal so the CUA model can focus on browser tasks where it performs best.
 
 ```bash
 AGENT_PROVIDER=anthropic          # or openai
-ANTHROPIC_API_KEY=sk-ant-...      # if using anthropic
+ANTHROPIC_API_KEY=sk-ant-...      # if using anthropic (api backend)
 OPENAI_API_KEY=sk-proj-...        # if using openai
+
+# Optional
+ANTHROPIC_BACKEND=api             # or bedrock
+ANTHROPIC_MODEL=claude-sonnet-5   # override per backend
+ANTHROPIC_EFFORT=medium           # low | medium | high | xhigh | max
+OPENAI_EFFORT=medium              # low | medium | high | xhigh
 ```
 
 ### Cloud runners
@@ -235,3 +241,7 @@ qa-project.yaml ──► parse docs ──► orchestrate sessions ──► ag
 2. **Orchestrate** — Pages are grouped into sessions. Each session gets fresh containers via `docker compose up` plus a desktop sandbox.
 3. **Agent loop** — The LLM receives docs content, then enters a tool-use loop: screenshots, mouse/keyboard actions, and step verification.
 4. **Report** — Results are collected into timestamped Markdown reports with per-page pass/fail details and `.mp4` recordings.
+
+## License
+
+[MIT](LICENSE) © Clidey, Inc.

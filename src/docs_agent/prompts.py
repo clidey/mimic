@@ -44,6 +44,7 @@ def build_initial_message(page: Page | None = None) -> str:
 # Anthropic prompt
 # ---------------------------------------------------------------------------
 
+
 def _build_anthropic_prompt(
     page: Page,
     session_state: SessionState,
@@ -160,6 +161,7 @@ and produce your assessment based on what you have observed so far.
 # ---------------------------------------------------------------------------
 # OpenAI CUA prompt
 # ---------------------------------------------------------------------------
+
 
 def _build_cua_prompt(
     page: Page,

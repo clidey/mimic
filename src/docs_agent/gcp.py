@@ -24,6 +24,7 @@ VM_NAME = "docsagent-runner"
 # gcloud helpers
 # ---------------------------------------------------------------------------
 
+
 def run(cmd: list[str], *, check: bool = True, capture: bool = False) -> subprocess.CompletedProcess[str]:
     print(f"  $ {' '.join(cmd)}")
     return subprocess.run(cmd, check=check, capture_output=capture, text=True)
@@ -37,9 +38,21 @@ def gcloud_ok() -> bool:
 def vm_exists(project: str, zone: str) -> bool:
     """Check whether our VM currently exists (any state)."""
     r = run(
-        ["gcloud", "compute", "instances", "describe", VM_NAME,
-         "--project", project, "--zone", zone, "--format", "value(status)"],
-        check=False, capture=True,
+        [
+            "gcloud",
+            "compute",
+            "instances",
+            "describe",
+            VM_NAME,
+            "--project",
+            project,
+            "--zone",
+            zone,
+            "--format",
+            "value(status)",
+        ],
+        check=False,
+        capture=True,
     )
     return r.returncode == 0
 
@@ -47,6 +60,7 @@ def vm_exists(project: str, zone: str) -> bool:
 # ---------------------------------------------------------------------------
 # Startup script (runs on the VM)
 # ---------------------------------------------------------------------------
+
 
 def _build_startup_script(env: dict[str, str]) -> str:
     provider = env.get("AGENT_PROVIDER", "anthropic")
@@ -67,7 +81,7 @@ def _build_startup_script(env: dict[str, str]) -> str:
         upload_logs_cmd=f"gsutil cp /var/log/docsagent.log gs://{bucket}/results/$TIMESTAMP/runner.log || true",
         download_code_cmd=f"gsutil cp gs://{bucket}/docsagent-code.tar.gz /opt/docsagent/code.tar.gz",
         upload_results_cmd=(
-            f'gsutil -m cp -r reports/ gs://{bucket}/results/$TIMESTAMP/\n'
+            f"gsutil -m cp -r reports/ gs://{bucket}/results/$TIMESTAMP/\n"
             f'    echo "$TIMESTAMP" | gsutil cp - gs://{bucket}/latest.txt\n'
             f'    echo "Results uploaded to gs://{bucket}/results/$TIMESTAMP/"'
         ),
@@ -77,6 +91,7 @@ def _build_startup_script(env: dict[str, str]) -> str:
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
+
 
 def cmd_launch(env: dict[str, str]) -> None:
     project = require(env, "GCP_PROJECT")
@@ -93,8 +108,10 @@ def cmd_launch(env: dict[str, str]) -> None:
     # Clean up any existing VM from a previous run
     if vm_exists(project, zone):
         print(f"Deleting existing VM '{VM_NAME}'...")
-        run(["gcloud", "compute", "instances", "delete", VM_NAME,
-             "--project", project, "--zone", zone, "--quiet"], check=False)
+        run(
+            ["gcloud", "compute", "instances", "delete", VM_NAME, "--project", project, "--zone", zone, "--quiet"],
+            check=False,
+        )
 
     # Package the docs-agent code
     print("\n1. Packaging docs-agent code...")
@@ -110,6 +127,7 @@ def cmd_launch(env: dict[str, str]) -> None:
     startup = _build_startup_script(env)
     fd, tmp = tempfile.mkstemp(suffix=".sh")
     import os
+
     os.close(fd)
     startup_path = Path(tmp)
     startup_path.write_text(startup)
@@ -117,15 +135,27 @@ def cmd_launch(env: dict[str, str]) -> None:
     # Create the VM
     print(f"\n4. Creating VM '{VM_NAME}' ({machine}, zone={zone})...")
     cmd = [
-        "gcloud", "compute", "instances", "create", VM_NAME,
-        "--project", project,
-        "--zone", zone,
-        "--machine-type", machine,
-        "--boot-disk-size", f"{disk_size}GB",
-        "--image-family", "ubuntu-2204-lts",
-        "--image-project", "ubuntu-os-cloud",
-        "--metadata-from-file", f"startup-script={startup_path}",
-        "--scopes", "storage-full",
+        "gcloud",
+        "compute",
+        "instances",
+        "create",
+        VM_NAME,
+        "--project",
+        project,
+        "--zone",
+        zone,
+        "--machine-type",
+        machine,
+        "--boot-disk-size",
+        f"{disk_size}GB",
+        "--image-family",
+        "ubuntu-2204-lts",
+        "--image-project",
+        "ubuntu-os-cloud",
+        "--metadata-from-file",
+        f"startup-script={startup_path}",
+        "--scopes",
+        "storage-full",
         "--no-restart-on-failure",
     ]
     if spot:
@@ -162,9 +192,21 @@ def cmd_wait(env: dict[str, str]) -> None:
         print(f"Waiting for VM '{VM_NAME}' to finish...")
         while True:
             r = run(
-                ["gcloud", "compute", "instances", "describe", VM_NAME,
-                 "--project", project, "--zone", zone, "--format", "value(status)"],
-                check=False, capture=True,
+                [
+                    "gcloud",
+                    "compute",
+                    "instances",
+                    "describe",
+                    VM_NAME,
+                    "--project",
+                    project,
+                    "--zone",
+                    zone,
+                    "--format",
+                    "value(status)",
+                ],
+                check=False,
+                capture=True,
             )
             if r.returncode != 0:
                 print("VM no longer exists — it shut itself down.")
@@ -210,8 +252,10 @@ def cmd_cleanup(env: dict[str, str]) -> None:
         return
 
     print(f"Deleting VM '{VM_NAME}'...")
-    run(["gcloud", "compute", "instances", "delete", VM_NAME,
-         "--project", project, "--zone", zone, "--quiet"], check=False)
+    run(
+        ["gcloud", "compute", "instances", "delete", VM_NAME, "--project", project, "--zone", zone, "--quiet"],
+        check=False,
+    )
 
 
 # Entry points are cmd_launch, cmd_wait, cmd_cleanup — called from cloud.py

@@ -62,9 +62,8 @@ def test_page(
                 except Exception as e:
                     log.warning("Tool %s failed: %s", tc.name, e)
                     result_content = [{"type": "text", "text": f"Tool execution failed: {type(e).__name__}: {e}"}]
-                is_error = (
-                    len(result_content) == 1
-                    and result_content[0].get("text", "").startswith("Tool execution failed")
+                is_error = len(result_content) == 1 and result_content[0].get("text", "").startswith(
+                    "Tool execution failed"
                 )
                 tool_results.append(ToolResult(call_id=tc.id, content=result_content, is_error=is_error))
 

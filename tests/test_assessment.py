@@ -82,9 +82,7 @@ class TestParseResult:
     def test_hit_limit_without_assessment(self) -> None:
         text = "Still testing step 3..."
 
-        result = parse_result(
-            _page(), text, duration=120.0, api_calls=40, tokens=50000, hit_limit=True
-        )
+        result = parse_result(_page(), text, duration=120.0, api_calls=40, tokens=50000, hit_limit=True)
 
         assert result.status == PageStatus.FAILED
         assert result.failure_type == FailureType.INDEPENDENT
@@ -93,9 +91,7 @@ class TestParseResult:
     def test_hit_limit_with_assessment_uses_assessment(self) -> None:
         text = "STATUS: PASSED\nSTEPS:\n- Step 1 : PASS\n"
 
-        result = parse_result(
-            _page(), text, duration=120.0, api_calls=40, tokens=50000, hit_limit=True
-        )
+        result = parse_result(_page(), text, duration=120.0, api_calls=40, tokens=50000, hit_limit=True)
 
         # When the assessment is present, hit_limit doesn't override it
         assert result.status == PageStatus.PASSED

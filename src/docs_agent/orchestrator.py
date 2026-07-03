@@ -113,6 +113,7 @@ def list_sessions(project: ProjectConfig) -> None:
 # Internal
 # ---------------------------------------------------------------------------
 
+
 def _load_pages(project: ProjectConfig) -> list[Page]:
     """Load pages from the project's docs source based on its mode.
 
@@ -176,7 +177,9 @@ def _run_session(
         for slug in session.page_slugs:
             page = find_page_by_slug(pages, slug)
             if page:
-                results.append(PageResult(page=page, status=PageStatus.NOT_APPLICABLE, failure_reason="Informational page"))
+                results.append(
+                    PageResult(page=page, status=PageStatus.NOT_APPLICABLE, failure_reason="Informational page")
+                )
         return results, recordings
 
     # Setup infrastructure
@@ -187,11 +190,13 @@ def _run_session(
         for slug in session.page_slugs:
             page = find_page_by_slug(pages, slug)
             if page:
-                results.append(PageResult(
-                    page=page,
-                    status=PageStatus.FAILED,
-                    failure_reason=f"Session setup failed: {e}",
-                ))
+                results.append(
+                    PageResult(
+                        page=page,
+                        status=PageStatus.FAILED,
+                        failure_reason=f"Session setup failed: {e}",
+                    )
+                )
         return results, recordings
 
     # Test each page
@@ -257,5 +262,6 @@ def _setup_infra(session: SessionConfig, project: ProjectConfig) -> None:
         docker_manager.start_desktop()
         # Pre-launch Firefox + terminal for CUA models that struggle with app discovery
         import os
+
         if os.environ.get("AGENT_PROVIDER", "anthropic").lower() == "openai":
             docker_manager.prepare_desktop()

@@ -66,9 +66,7 @@ def _init_project(target: Path) -> None:
     docs_dir = target / "docs"
     docs_dir.mkdir(parents=True, exist_ok=True)
 
-    (target / "qa-project.yaml").write_text(
-        _TEMPLATE_QA_PROJECT.format(name=target.name)
-    )
+    (target / "qa-project.yaml").write_text(_TEMPLATE_QA_PROJECT.format(name=target.name))
     (target / "docker-compose.yml").write_text(_TEMPLATE_COMPOSE)
     (docs_dir / "getting-started.mdx").write_text(_TEMPLATE_DOCS_PAGE)
 
@@ -84,9 +82,11 @@ def _init_project(target: Path) -> None:
 # Main CLI
 # ---------------------------------------------------------------------------
 
+
 def _load_dotenv() -> None:
     """Load .env into os.environ (no-op if file missing or vars already set)."""
     from docs_agent.runner_utils import AGENT_ROOT
+
     env_path = AGENT_ROOT / ".env"
     if not env_path.exists():
         return
@@ -131,12 +131,14 @@ def main() -> None:
 
         class _JsonFormatter(logging.Formatter):
             def format(self, record: logging.LogRecord) -> str:
-                return _json.dumps({
-                    "time": self.formatTime(record, "%Y-%m-%dT%H:%M:%S"),
-                    "level": record.levelname,
-                    "logger": record.name,
-                    "message": record.getMessage(),
-                })
+                return _json.dumps(
+                    {
+                        "time": self.formatTime(record, "%Y-%m-%dT%H:%M:%S"),
+                        "level": record.levelname,
+                        "logger": record.name,
+                        "message": record.getMessage(),
+                    }
+                )
 
         handler = logging.StreamHandler()
         handler.setFormatter(_JsonFormatter())

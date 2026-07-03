@@ -10,9 +10,11 @@ from dataclasses import dataclass, field
 # Normalized types shared between providers and the agent loop
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ToolCall:
     """A single tool invocation requested by the model."""
+
     id: str
     name: str
     input: dict
@@ -21,6 +23,7 @@ class ToolCall:
 @dataclass
 class ToolResult:
     """Result of executing a tool call, sent back to the model."""
+
     call_id: str
     content: list[dict]
     is_error: bool = False
@@ -29,6 +32,7 @@ class ToolResult:
 @dataclass
 class ProviderResponse:
     """Normalized response from a provider's send method."""
+
     tool_calls: list[ToolCall] = field(default_factory=list)
     text_parts: list[str] = field(default_factory=list)
     tokens_used: int = 0
@@ -38,6 +42,7 @@ class ProviderResponse:
 # ---------------------------------------------------------------------------
 # Provider ABC
 # ---------------------------------------------------------------------------
+
 
 class Provider(ABC):
     """Abstract base for LLM computer-use providers."""
@@ -51,9 +56,7 @@ class Provider(ABC):
         """Send the first user message and return the model's response."""
 
     @abstractmethod
-    def send_tool_results(
-        self, results: list[ToolResult], nudge_text: str | None = None
-    ) -> ProviderResponse:
+    def send_tool_results(self, results: list[ToolResult], nudge_text: str | None = None) -> ProviderResponse:
         """Send tool execution results (and optional nudge) and return the next response."""
 
     def generate_assessment(self, last_screenshot_b64: str | None = None) -> str | None:
@@ -72,18 +75,19 @@ class Provider(ABC):
 # Factory
 # ---------------------------------------------------------------------------
 
+
 def get_provider(name: str | None = None) -> Provider:
     """Instantiate a provider by name (defaults to AGENT_PROVIDER env var)."""
     provider_name = (name or os.environ.get("AGENT_PROVIDER") or "anthropic").lower()
 
     if provider_name == "anthropic":
         from docs_agent.providers.anthropic_provider import AnthropicProvider
+
         return AnthropicProvider()
 
     if provider_name == "openai":
         from docs_agent.providers.openai_provider import OpenAIProvider
+
         return OpenAIProvider()
 
-    raise ValueError(
-        f"Unknown provider: {provider_name!r}. Supported: 'anthropic', 'openai'"
-    )
+    raise ValueError(f"Unknown provider: {provider_name!r}. Supported: 'anthropic', 'openai'")

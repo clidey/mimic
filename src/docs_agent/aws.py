@@ -25,6 +25,7 @@ INSTANCE_TAG = "docsagent-runner"
 # AWS helpers
 # ---------------------------------------------------------------------------
 
+
 def get_region(env: dict[str, str]) -> str:
     return require(env, "AWS_REGION")
 
@@ -75,6 +76,7 @@ def lookup_ubuntu_ami(region: str) -> str:
 # Startup script (runs on the EC2 instance)
 # ---------------------------------------------------------------------------
 
+
 def _build_startup_script(env: dict[str, str]) -> str:
     provider = env.get("AGENT_PROVIDER", "anthropic")
     bucket = require(env, "S3_BUCKET")
@@ -113,7 +115,7 @@ def _build_startup_script(env: dict[str, str]) -> str:
         upload_logs_cmd=f"aws s3 cp /var/log/docsagent.log s3://{bucket}/results/$TIMESTAMP/runner.log || true",
         download_code_cmd=f"aws s3 cp s3://{bucket}/docsagent-code.tar.gz /opt/docsagent/code.tar.gz",
         upload_results_cmd=(
-            f'aws s3 sync reports/ s3://{bucket}/results/$TIMESTAMP/reports/\n'
+            f"aws s3 sync reports/ s3://{bucket}/results/$TIMESTAMP/reports/\n"
             f'    echo "$TIMESTAMP" | aws s3 cp - s3://{bucket}/latest.txt\n'
             f'    echo "Results uploaded to s3://{bucket}/results/$TIMESTAMP/"'
         ),
@@ -123,6 +125,7 @@ def _build_startup_script(env: dict[str, str]) -> str:
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
+
 
 def cmd_launch(env: dict[str, str]) -> None:
     region = get_region(env)
@@ -295,7 +298,7 @@ def cmd_wait(env: dict[str, str]) -> None:
     for page in paginator.paginate(Bucket=bucket, Prefix=reports_prefix):
         for obj in page.get("Contents", []):
             key = obj["Key"]
-            rel = key[len(reports_prefix):]
+            rel = key[len(reports_prefix) :]
             if not rel:
                 continue
             dest = local_dir / rel

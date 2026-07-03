@@ -20,7 +20,9 @@ def main() -> None:
         description="Run docs-agent on a cloud spot instance (GCP or AWS)",
     )
     parser.add_argument("--cloud", required=True, choices=["gcp", "aws"], help="Cloud provider to launch on")
-    parser.add_argument("--provider", choices=["anthropic", "openai"], help="LLM provider (overrides AGENT_PROVIDER in .env)")
+    parser.add_argument(
+        "--provider", choices=["anthropic", "openai"], help="LLM provider (overrides AGENT_PROVIDER in .env)"
+    )
     parser.add_argument("--wait", action="store_true", help="Poll until done, then download results")
     parser.add_argument("--cleanup", action="store_true", help="Terminate the instance if still running")
     parser.add_argument("--env", default=str(AGENT_ROOT / ".env"), help="Path to .env file")

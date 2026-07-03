@@ -82,11 +82,13 @@ class OpenAIProvider(Provider):
         b64 = take_screenshot()
         content: list[dict] = [{"type": "input_text", "text": user_message}]
         if b64:
-            content.append({
-                "type": "input_image",
-                "image_url": f"data:image/png;base64,{b64}",
-                "detail": "original",
-            })
+            content.append(
+                {
+                    "type": "input_image",
+                    "image_url": f"data:image/png;base64,{b64}",
+                    "detail": "original",
+                }
+            )
 
         response = self._client.responses.create(  # type: ignore[call-overload]
             model=OPENAI_MODEL,
@@ -100,9 +102,7 @@ class OpenAIProvider(Provider):
         self._previous_response_id = response.id
         return self._parse_response(response)
 
-    def send_tool_results(
-        self, results: list[ToolResult], nudge_text: str | None = None
-    ) -> ProviderResponse:
+    def send_tool_results(self, results: list[ToolResult], nudge_text: str | None = None) -> ProviderResponse:
         items: list[dict] = [self._build_output(r) for r in results]
 
         if nudge_text:
@@ -127,16 +127,18 @@ class OpenAIProvider(Provider):
 
         log.info("Generating assessment via %s (%d actions logged)", OPENAI_ASSESSMENT_MODEL, len(self._action_log))
 
-        action_text = "\n".join(f"  {i+1}. {a}" for i, a in enumerate(self._action_log))
+        action_text = "\n".join(f"  {i + 1}. {a}" for i, a in enumerate(self._action_log))
         prompt = _ASSESSMENT_PROMPT.format(system_prompt=self._system, action_log=action_text)
 
         messages: list[dict] = []
         content: list[dict] = [{"type": "text", "text": prompt}]
         if last_screenshot_b64:
-            content.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:image/png;base64,{last_screenshot_b64}"},
-            })
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/png;base64,{last_screenshot_b64}"},
+                }
+            )
         messages.append({"role": "user", "content": content})
 
         try:
@@ -189,6 +191,7 @@ class OpenAIProvider(Provider):
         # result carried only text (e.g. a bash-only action).
         if screenshot_b64 is None:
             from docs_agent.docker_manager import take_screenshot
+
             screenshot_b64 = take_screenshot()
 
         if screenshot_b64:
@@ -215,11 +218,13 @@ class OpenAIProvider(Provider):
                 dumped = item.model_dump()
                 actions = dumped.get("actions") or []
                 normalized = [self._normalize_action(a) for a in actions]
-                tool_calls.append(ToolCall(
-                    id=dumped["call_id"],
-                    name="computer",
-                    input={"actions": normalized},
-                ))
+                tool_calls.append(
+                    ToolCall(
+                        id=dumped["call_id"],
+                        name="computer",
+                        input={"actions": normalized},
+                    )
+                )
                 for a in actions:
                     self._action_log.append(self._describe_action(a))
                 for check in dumped.get("pending_safety_checks") or []:

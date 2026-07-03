@@ -48,18 +48,24 @@ class TestStatusSubdir:
 class TestGenerateReport:
     def test_creates_report_directory(self, tmp_path: Path, monkeypatch: object) -> None:
         import docs_agent.report as report_mod
+
         monkeypatch.setattr(report_mod, "REPORTS_DIR", tmp_path / "reports")
 
         results = [
             _result("install", PageStatus.PASSED, duration=10.0, api_calls=5, tokens_used=1000),
-            _result("config", PageStatus.FAILED,
-                    failure_reason="Button not found",
-                    failure_type=FailureType.INDEPENDENT,
-                    duration=20.0, api_calls=10, tokens_used=2000,
-                    steps=[
-                        StepResult(description="Open page", passed=True),
-                        StepResult(description="Click button", passed=False, error="not found"),
-                    ]),
+            _result(
+                "config",
+                PageStatus.FAILED,
+                failure_reason="Button not found",
+                failure_type=FailureType.INDEPENDENT,
+                duration=20.0,
+                api_calls=10,
+                tokens_used=2000,
+                steps=[
+                    StepResult(description="Open page", passed=True),
+                    StepResult(description="Click button", passed=False, error="not found"),
+                ],
+            ),
             _result("changelog", PageStatus.SKIPPED, duration=0.0, api_calls=0, tokens_used=0),
         ]
 
@@ -87,6 +93,7 @@ class TestGenerateReport:
 
     def test_handles_nested_slugs(self, tmp_path: Path, monkeypatch: object) -> None:
         import docs_agent.report as report_mod
+
         monkeypatch.setattr(report_mod, "REPORTS_DIR", tmp_path / "reports")
 
         results = [_result("features/billing", PageStatus.PASSED, duration=5.0, api_calls=3, tokens_used=500)]

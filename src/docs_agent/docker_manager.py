@@ -27,7 +27,10 @@ SANDBOX_DIR = Path(__file__).resolve().parent / "sandbox"
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _run(cmd: list[str], *, check: bool = True, capture: bool = True, timeout: int = 120) -> subprocess.CompletedProcess[str]:
+
+def _run(
+    cmd: list[str], *, check: bool = True, capture: bool = True, timeout: int = 120
+) -> subprocess.CompletedProcess[str]:
     log.debug("$ %s", " ".join(cmd))
     return subprocess.run(cmd, capture_output=capture, text=True, check=check, timeout=timeout)
 
@@ -40,6 +43,7 @@ def _container_running(name: str) -> bool:
 # ---------------------------------------------------------------------------
 # Network
 # ---------------------------------------------------------------------------
+
 
 def create_network() -> None:
     if _run(["docker", "network", "inspect", NETWORK_NAME], check=False).returncode != 0:
@@ -55,10 +59,11 @@ def remove_network() -> None:
 # Docker Compose — manages app infrastructure
 # ---------------------------------------------------------------------------
 
+
 def compose_up(compose_file: Path, profiles: list[str] | None = None) -> None:
     """Bring up services defined in a docker-compose file."""
     cmd = ["docker", "compose", "-f", str(compose_file)]
-    for p in (profiles or []):
+    for p in profiles or []:
         cmd += ["--profile", p]
     cmd += ["up", "-d", "--wait"]
     _run(cmd, timeout=300)
@@ -75,6 +80,7 @@ def compose_down(compose_file: Path) -> None:
 # Desktop container — always managed by the agent
 # ---------------------------------------------------------------------------
 
+
 def start_desktop() -> None:
     """Build and start the desktop sandbox container.
 
@@ -84,13 +90,19 @@ def start_desktop() -> None:
     _run(["docker", "rm", "-f", DESKTOP_CONTAINER], check=False)
     log.info("Building desktop image...")
     _run(["docker", "build", "-t", "docsagent-desktop", str(SANDBOX_DIR)], timeout=300)
-    _run([
-        "docker", "run", "-d",
-        "--privileged",
-        "--name", DESKTOP_CONTAINER,
-        "--network", NETWORK_NAME,
-        "docsagent-desktop",
-    ])
+    _run(
+        [
+            "docker",
+            "run",
+            "-d",
+            "--privileged",
+            "--name",
+            DESKTOP_CONTAINER,
+            "--network",
+            NETWORK_NAME,
+            "docsagent-desktop",
+        ]
+    )
     _wait_for_desktop()
 
 
@@ -123,6 +135,7 @@ def prepare_desktop() -> None:
 # Cleanup
 # ---------------------------------------------------------------------------
 
+
 def stop_all(compose_file: Path | None = None) -> None:
     """Remove the desktop container and optionally tear down compose services."""
     _run(["docker", "rm", "-f", DESKTOP_CONTAINER], check=False)
@@ -135,6 +148,7 @@ def stop_all(compose_file: Path | None = None) -> None:
 # ---------------------------------------------------------------------------
 # Exec helpers (used by agent)
 # ---------------------------------------------------------------------------
+
 
 def exec_in_desktop(command: str, *, timeout: int = 30) -> str:
     """Run a shell command inside the desktop container and return stdout."""

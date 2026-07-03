@@ -31,9 +31,7 @@ ANTHROPIC_BACKEND = os.environ.get("ANTHROPIC_BACKEND", "api").lower()
 # and only some support computer use (claude-opus-4-7 works; sonnet-5/opus-4-8
 # reject the computer tool as of this writing). Override via ANTHROPIC_MODEL.
 _ANTHROPIC_MODEL_DEFAULTS = {"api": "claude-sonnet-5", "bedrock": "anthropic.claude-opus-4-7"}
-ANTHROPIC_MODEL = os.environ.get(
-    "ANTHROPIC_MODEL", _ANTHROPIC_MODEL_DEFAULTS.get(ANTHROPIC_BACKEND, "claude-sonnet-5")
-)
+ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", _ANTHROPIC_MODEL_DEFAULTS.get(ANTHROPIC_BACKEND, "claude-sonnet-5"))
 ANTHROPIC_BETA = "computer-use-2025-11-24"
 ANTHROPIC_MAX_TOKENS = 16384
 # Reasoning effort (output_config). One of: low, medium, high, xhigh, max.

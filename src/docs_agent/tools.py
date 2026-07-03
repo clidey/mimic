@@ -29,6 +29,7 @@ _XDOTOOL_MODIFIERS = {
 # Screenshot helper
 # ---------------------------------------------------------------------------
 
+
 def screenshot_result(b64: str | None) -> list[dict[str, Any]]:
     """Build a tool_result content block from a screenshot, handling failures."""
     if b64:
@@ -39,6 +40,7 @@ def screenshot_result(b64: str | None) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 # Individual tool handlers
 # ---------------------------------------------------------------------------
+
 
 def execute_computer_tool(action: str, **kwargs: Any) -> list[dict[str, Any]]:
     """Execute a computer-use action and return tool_result content blocks."""
@@ -138,7 +140,7 @@ def execute_text_editor_tool(command: str, **kwargs: Any) -> list[dict[str, Any]
         old_esc = old.replace("'", "'\\''")
         new_esc = new.replace("'", "'\\''")
         exec_in_desktop(
-            f"python3 -c \"\nimport pathlib\np = pathlib.Path('{path}')\nt = p.read_text()\nassert t.count('''{old_esc}''') == 1, f'Expected 1 occurrence, found {{t.count(\\\"\\\"\\\"{ old_esc }\\\"\\\"\\\")}}'\np.write_text(t.replace('''{old_esc}''', '''{new_esc}''', 1))\nprint('Replaced successfully')\n\""
+            f"python3 -c \"\nimport pathlib\np = pathlib.Path('{path}')\nt = p.read_text()\nassert t.count('''{old_esc}''') == 1, f'Expected 1 occurrence, found {{t.count(\\\"\\\"\\\"{old_esc}\\\"\\\"\\\")}}'\np.write_text(t.replace('''{old_esc}''', '''{new_esc}''', 1))\nprint('Replaced successfully')\n\""
         )
         output = f"Replaced in {path}"
     elif command == "insert":
@@ -157,6 +159,7 @@ def execute_text_editor_tool(command: str, **kwargs: Any) -> list[dict[str, Any]
 # ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
+
 
 def dispatch_tool(tool_name: str, tool_input: dict[str, Any]) -> list[dict[str, Any]]:
     """Route a tool call to the appropriate handler."""

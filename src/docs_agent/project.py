@@ -18,17 +18,17 @@ PROJECT_FILENAMES = ("qa-project.yaml", "qa-project.yml")
 
 
 class DocsMode(Enum):
-    FILE = "file"            # Concatenated file (e.g. llms.txt)
+    FILE = "file"  # Concatenated file (e.g. llms.txt)
     DIRECTORY = "directory"  # Directory of individual doc files
-    URL = "url"              # Remote fetchable file (same format as FILE)
-    BROWSE = "browse"        # LLM navigates to live URLs in browser
+    URL = "url"  # Remote fetchable file (same format as FILE)
+    BROWSE = "browse"  # LLM navigates to live URLs in browser
 
 
 @dataclass
 class ProjectConfig:
     name: str
-    docs_source: Path | None           # Local file or directory (FILE, DIRECTORY modes)
-    docs_url: str | None               # Remote file URL (URL) or browse base URL (BROWSE)
+    docs_source: Path | None  # Local file or directory (FILE, DIRECTORY modes)
+    docs_url: str | None  # Remote file URL (URL) or browse base URL (BROWSE)
     docs_mode: DocsMode
     environment: str
     sessions: list[SessionConfig] | None  # None = auto-group by directory prefix
@@ -55,9 +55,7 @@ def load_project(path: Path | None = None) -> ProjectConfig:
     docs_url_raw = raw.get("docs_url")
 
     # Determine docs mode, source, and URL
-    docs_source, docs_url, docs_mode = _resolve_docs(
-        docs_rel, docs_url_raw, project_dir, yaml_path
-    )
+    docs_source, docs_url, docs_mode = _resolve_docs(docs_rel, docs_url_raw, project_dir, yaml_path)
 
     environment = raw.get("environment", "")
 
@@ -73,8 +71,7 @@ def load_project(path: Path | None = None) -> ProjectConfig:
     # BROWSE mode requires explicit sessions (no content to auto-group from)
     if docs_mode == DocsMode.BROWSE and sessions is None:
         raise ValueError(
-            f"{yaml_path}: 'sessions' with page lists are required when using "
-            "docs_url without docs (URL-browse mode)"
+            f"{yaml_path}: 'sessions' with page lists are required when using docs_url without docs (URL-browse mode)"
         )
 
     return ProjectConfig(
@@ -89,9 +86,7 @@ def load_project(path: Path | None = None) -> ProjectConfig:
     )
 
 
-def resolve_session_globs(
-    sessions: list[SessionConfig], all_slugs: list[str]
-) -> list[SessionConfig]:
+def resolve_session_globs(sessions: list[SessionConfig], all_slugs: list[str]) -> list[SessionConfig]:
     """Expand glob patterns (e.g. 'ai/*') in session page_slugs against parsed page slugs."""
     resolved = []
     for session in sessions:
@@ -104,12 +99,14 @@ def resolve_session_globs(
                 expanded.extend(matches)
             else:
                 expanded.append(pattern)
-        resolved.append(SessionConfig(
-            name=session.name,
-            page_slugs=expanded,
-            needs_desktop=session.needs_desktop,
-            compose_profiles=session.compose_profiles,
-        ))
+        resolved.append(
+            SessionConfig(
+                name=session.name,
+                page_slugs=expanded,
+                needs_desktop=session.needs_desktop,
+                compose_profiles=session.compose_profiles,
+            )
+        )
     return resolved
 
 
@@ -132,6 +129,7 @@ def auto_group_sessions(slugs: list[str]) -> list[SessionConfig]:
 # ---------------------------------------------------------------------------
 # Internal
 # ---------------------------------------------------------------------------
+
 
 def _resolve_docs(
     docs_rel: str | None,
@@ -156,9 +154,7 @@ def _resolve_docs(
         # No local docs, only a live URL for browser navigation
         return None, str(docs_url_raw), DocsMode.BROWSE
 
-    raise ValueError(
-        f"{yaml_path}: at least one of 'docs' or 'docs_url' is required"
-    )
+    raise ValueError(f"{yaml_path}: at least one of 'docs' or 'docs_url' is required")
 
 
 def _resolve_yaml_path(path: Path | None) -> Path:
@@ -171,10 +167,7 @@ def _resolve_yaml_path(path: Path | None) -> Path:
                 candidate = p / name
                 if candidate.exists():
                     return candidate
-            raise FileNotFoundError(
-                f"No project file found in {p}. "
-                f"Expected one of: {', '.join(PROJECT_FILENAMES)}"
-            )
+            raise FileNotFoundError(f"No project file found in {p}. Expected one of: {', '.join(PROJECT_FILENAMES)}")
         raise FileNotFoundError(f"Path does not exist: {p}")
 
     # Search cwd then parents

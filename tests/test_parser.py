@@ -16,6 +16,7 @@ from docs_agent.parser import (
 # Concatenated file parsing
 # ---------------------------------------------------------------------------
 
+
 class TestParseConcatenated:
     def test_basic_two_pages(self, tmp_path: Path) -> None:
         content = textwrap.dedent("""\
@@ -101,6 +102,7 @@ class TestParseConcatenated:
 # Directory parsing
 # ---------------------------------------------------------------------------
 
+
 class TestParseFromDir:
     def test_reads_mdx_files(self, tmp_path: Path) -> None:
         (tmp_path / "getting-started.mdx").write_text("Step 1: install.\n")
@@ -136,6 +138,7 @@ class TestParseFromDir:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 class TestFindPageBySlug:
     def test_finds_existing(self, tmp_path: Path) -> None:
