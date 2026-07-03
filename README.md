@@ -31,7 +31,7 @@ Or work from a clone (for development, or to run the bundled examples):
 
 ```bash
 # 1. Clone and install
-git clone <repo-url> && cd mimic
+git clone https://github.com/clidey/mimic.git && cd mimic
 uv sync
 
 # 2. Add your API key
