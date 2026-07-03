@@ -1,5 +1,5 @@
 # Mimic - a documentation QA agent
-<img src="octopus.png" width="300" height="300">
+<img src="https://raw.githubusercontent.com/clidey/mimic/main/octopus.png" width="300" height="300">
 
 Mimic is an automated QA agent that tests documentation by following instructions as a real user would — spinning up a sandboxed desktop in Docker, navigating via screenshots and mouse/keyboard, and producing Markdown reports with pass/fail results and screen recordings.
 
