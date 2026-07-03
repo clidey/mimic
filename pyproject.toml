@@ -2,6 +2,7 @@
 name = "mimic-qa"
 version = "0.3.0"
 description = "Documentation QA agent — tests doc pages via computer-use with any project"
+readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 dependencies = [
@@ -19,6 +20,11 @@ dev = [
     "types-PyYAML==6.0.12.20250402",
     "boto3-stubs==1.38.1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/clidey/mimic"
+Repository = "https://github.com/clidey/mimic"
+Issues = "https://github.com/clidey/mimic/issues"
 
 [project.scripts]
 mimic = "mimic.__main__:main"
