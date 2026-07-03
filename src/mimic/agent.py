@@ -6,18 +6,18 @@ import json
 import logging
 import time
 
-from docs_agent.assessment import STATUS_RE, parse_result
-from docs_agent.config import (
+from mimic.assessment import STATUS_RE, parse_result
+from mimic.config import (
     DISPLAY_HEIGHT,
     DISPLAY_WIDTH,
     MAX_AGENT_ITERATIONS,
     WRAPUP_THRESHOLD,
 )
-from docs_agent.docker_manager import start_recording, stop_recording, take_screenshot
-from docs_agent.models import Page, PageResult, SessionState
-from docs_agent.prompts import build_initial_message, build_system_prompt
-from docs_agent.providers import ToolResult, get_provider
-from docs_agent.tools import dispatch_tool
+from mimic.docker_manager import start_recording, stop_recording, take_screenshot
+from mimic.models import Page, PageResult, SessionState
+from mimic.prompts import build_initial_message, build_system_prompt
+from mimic.providers import ToolResult, get_provider
+from mimic.tools import dispatch_tool
 
 log = logging.getLogger(__name__)
 

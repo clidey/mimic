@@ -6,12 +6,12 @@ import logging
 import tempfile
 from pathlib import Path
 
-from docs_agent import docker_manager
-from docs_agent.agent import test_page
-from docs_agent.models import Page, PageResult, PageStatus, SessionConfig, SessionState
-from docs_agent.parser import find_page_by_slug, make_url_pages, parse_pages, parse_pages_from_dir, parse_pages_from_url
-from docs_agent.project import DocsMode, ProjectConfig, auto_group_sessions, resolve_session_globs
-from docs_agent.report import generate_report, slug_to_filename, status_subdir
+from mimic import docker_manager
+from mimic.agent import test_page
+from mimic.models import Page, PageResult, PageStatus, SessionConfig, SessionState
+from mimic.parser import find_page_by_slug, make_url_pages, parse_pages, parse_pages_from_dir, parse_pages_from_url
+from mimic.project import DocsMode, ProjectConfig, auto_group_sessions, resolve_session_globs
+from mimic.report import generate_report, slug_to_filename, status_subdir
 
 log = logging.getLogger(__name__)
 

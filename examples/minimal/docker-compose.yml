@@ -1,9 +1,9 @@
 services:
   web:
     image: nginx:alpine
-    networks: [docsagent-net]
+    networks: [mimic-net]
 
 networks:
-  docsagent-net:
-    name: docsagent-net
+  mimic-net:
+    name: mimic-net
     external: true

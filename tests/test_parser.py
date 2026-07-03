@@ -1,11 +1,11 @@
-"""Tests for docs_agent.parser — doc file parsing into Page objects."""
+"""Tests for mimic.parser — doc file parsing into Page objects."""
 
 from __future__ import annotations
 
 import textwrap
 from pathlib import Path
 
-from docs_agent.parser import (
+from mimic.parser import (
     find_page_by_slug,
     make_url_pages,
     parse_pages,

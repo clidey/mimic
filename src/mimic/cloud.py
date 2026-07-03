@@ -1,9 +1,9 @@
-"""Unified cloud runner — launch docs-agent on GCP or AWS.
+"""Unified cloud runner — launch mimic on GCP or AWS.
 
 Usage:
-    docs-agent-cloud --cloud gcp --provider anthropic
-    docs-agent-cloud --cloud aws --provider openai --wait
-    docs-agent-cloud --cloud gcp --cleanup
+    mimic-cloud --cloud gcp --provider anthropic
+    mimic-cloud --cloud aws --provider openai --wait
+    mimic-cloud --cloud gcp --cleanup
 """
 
 from __future__ import annotations
@@ -11,13 +11,13 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from docs_agent.runner_utils import AGENT_ROOT, load_env
+from mimic.runner_utils import AGENT_ROOT, load_env
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        prog="docs-agent-cloud",
-        description="Run docs-agent on a cloud spot instance (GCP or AWS)",
+        prog="mimic-cloud",
+        description="Run mimic on a cloud spot instance (GCP or AWS)",
     )
     parser.add_argument("--cloud", required=True, choices=["gcp", "aws"], help="Cloud provider to launch on")
     parser.add_argument(
@@ -33,7 +33,7 @@ def main() -> None:
         env["AGENT_PROVIDER"] = args.provider
 
     if args.cloud == "gcp":
-        from docs_agent.gcp import cmd_cleanup, cmd_launch, cmd_wait
+        from mimic.gcp import cmd_cleanup, cmd_launch, cmd_wait
 
         if args.cleanup:
             cmd_cleanup(env)
@@ -44,7 +44,7 @@ def main() -> None:
             cmd_launch(env)
 
     elif args.cloud == "aws":
-        from docs_agent.aws import cmd_cleanup, cmd_launch, cmd_wait
+        from mimic.aws import cmd_cleanup, cmd_launch, cmd_wait
 
         if args.cleanup:
             cmd_cleanup(env)

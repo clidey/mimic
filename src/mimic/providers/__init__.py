@@ -81,12 +81,12 @@ def get_provider(name: str | None = None) -> Provider:
     provider_name = (name or os.environ.get("AGENT_PROVIDER") or "anthropic").lower()
 
     if provider_name == "anthropic":
-        from docs_agent.providers.anthropic_provider import AnthropicProvider
+        from mimic.providers.anthropic_provider import AnthropicProvider
 
         return AnthropicProvider()
 
     if provider_name == "openai":
-        from docs_agent.providers.openai_provider import OpenAIProvider
+        from mimic.providers.openai_provider import OpenAIProvider
 
         return OpenAIProvider()
 

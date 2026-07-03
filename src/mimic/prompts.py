@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 import os
 
-from docs_agent.config import ASSESSMENT_FORMAT, MAX_AGENT_ITERATIONS
-from docs_agent.models import Page, SessionState
+from mimic.config import ASSESSMENT_FORMAT, MAX_AGENT_ITERATIONS
+from mimic.models import Page, SessionState
 
 
 def is_openai_provider() -> bool:

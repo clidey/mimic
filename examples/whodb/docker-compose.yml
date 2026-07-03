@@ -1,10 +1,10 @@
-# WhoDB infrastructure for docs-agent QA testing.
+# WhoDB infrastructure for mimic QA testing.
 # The desktop sandbox is managed separately by the agent.
 
 services:
   postgres:
     image: postgres:15
-    container_name: docsagent-postgres
+    container_name: mimic-postgres
     environment:
       POSTGRES_USER: whodb
       POSTGRES_PASSWORD: whodb
@@ -12,7 +12,7 @@ services:
     volumes:
       - ./assets/sample-data.sql:/docker-entrypoint-initdb.d/init.sql:ro
     networks:
-      - docsagent-net
+      - mimic-net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U whodb"]
       interval: 2s
@@ -21,21 +21,21 @@ services:
 
   whodb:
     image: clidey/whodb:latest
-    container_name: docsagent-whodb
+    container_name: mimic-whodb
     depends_on:
       postgres:
         condition: service_healthy
     networks:
-      - docsagent-net
+      - mimic-net
 
   ollama:
     image: ollama/ollama:latest
-    container_name: docsagent-ollama
+    container_name: mimic-ollama
     profiles: [ollama]
     networks:
-      - docsagent-net
+      - mimic-net
 
 networks:
-  docsagent-net:
-    name: docsagent-net
+  mimic-net:
+    name: mimic-net
     external: true

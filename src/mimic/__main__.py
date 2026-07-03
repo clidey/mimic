@@ -1,4 +1,4 @@
-"""CLI entry point: uv run docs-agent [options]."""
+"""CLI entry point: uv run mimic [options]."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# Template strings for `docs-agent init`
+# Template strings for `mimic init`
 # ---------------------------------------------------------------------------
 
 _TEMPLATE_QA_PROJECT = """\
@@ -39,12 +39,12 @@ services:
   # Add your app services here. Example:
   # myapp:
   #   image: myorg/myapp:latest
-  #   networks: [docsagent-net]
+  #   networks: [mimic-net]
   {}
 
 networks:
-  docsagent-net:
-    name: docsagent-net
+  mimic-net:
+    name: mimic-net
     external: true   # agent creates this network; compose joins it
 """
 
@@ -58,7 +58,7 @@ _TEMPLATE_DOCS_PAGE = """\
 
 
 def _init_project(target: Path) -> None:
-    """Scaffold a new docs-agent project directory."""
+    """Scaffold a new mimic project directory."""
     if target.exists() and any(target.iterdir()):
         print(f"Error: '{target}' already exists and is not empty.", file=sys.stderr)
         sys.exit(1)
@@ -75,7 +75,7 @@ def _init_project(target: Path) -> None:
     print("  1. Edit qa-project.yaml  — set your app's name and environment")
     print("  2. Edit docker-compose.yml — add your app's services")
     print("  3. Add your docs to docs/ (one .mdx file per page)")
-    print(f"  4. uv run docs-agent --project {target} --list-pages")
+    print(f"  4. uv run mimic --project {target} --list-pages")
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +85,7 @@ def _init_project(target: Path) -> None:
 
 def _load_dotenv() -> None:
     """Load .env into os.environ (no-op if file missing or vars already set)."""
-    from docs_agent.runner_utils import AGENT_ROOT
+    from mimic.runner_utils import AGENT_ROOT
 
     env_path = AGENT_ROOT / ".env"
     if not env_path.exists():
@@ -103,17 +103,17 @@ def _load_dotenv() -> None:
 def main() -> None:
     _load_dotenv()
 
-    # Handle `docs-agent init <name>` before argparse
+    # Handle `mimic init <name>` before argparse
     args_raw = sys.argv[1:]
     if args_raw and args_raw[0] == "init":
         if len(args_raw) < 2:
-            print("Usage: docs-agent init <project-name>", file=sys.stderr)
+            print("Usage: mimic init <project-name>", file=sys.stderr)
             sys.exit(1)
         _init_project(Path(args_raw[1]))
         return
 
     parser = argparse.ArgumentParser(
-        prog="docs-agent",
+        prog="mimic",
         description="Documentation QA agent — tests doc pages via computer-use",
     )
     parser.add_argument("--project", metavar="PATH", help="Path to qa-project.yaml or directory containing it")
@@ -152,7 +152,7 @@ def main() -> None:
         )
 
     # Load project config
-    from docs_agent.project import load_project
+    from mimic.project import load_project
 
     project_path = Path(args.project) if args.project else None
     try:
@@ -164,7 +164,7 @@ def main() -> None:
     logging.getLogger(__name__).info("Loaded project '%s' from %s", project.name, project.project_dir)
 
     # Lazy imports so --list-pages/--list-sessions don't need anthropic key
-    from docs_agent.orchestrator import list_pages, list_sessions, run_all, run_page, run_session
+    from mimic.orchestrator import list_pages, list_sessions, run_all, run_page, run_session
 
     if args.list_pages:
         list_pages(project)

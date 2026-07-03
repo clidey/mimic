@@ -1,0 +1,192 @@
+name: Release
+
+# Orchestrates a synced Mimic release:
+#   1. resolve-version  — derive + validate the version (from tag or dispatch input)
+#   2. build-sandbox    — build & push the Docker Hub sandbox image (reusable workflow)
+#   3. publish-pypi     — build & publish the mimic package to PyPI (trusted publishing)
+#   4. github-release   — gated on ALL of the above succeeding; creates the GitHub release
+#
+# The GitHub release only happens if both the image and the PyPI package published,
+# so a release never points at artifacts that failed to ship.
+#
+# Triggers: version tags (v*) or manual dispatch.
+# Requires: DOCKERHUB_USERNAME / DOCKERHUB_TOKEN secrets, a `pypi` environment with
+# PyPI trusted publishing configured for this repo, and a `deploy-docker` environment.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g. 0.3.0) — must match pyproject.toml"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  resolve-version:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Derive and validate version
+        id: v
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "$REF_TYPE" = "tag" ]; then
+            version="${REF_NAME#v}"
+          else
+            version="$INPUT_VERSION"
+          fi
+          # Reject anything that isn't a safe version string.
+          case "$version" in
+            *[!a-zA-Z0-9._-]*|"") echo "::error::Invalid version: '$version'"; exit 1 ;;
+          esac
+          # Must match the version declared in pyproject.toml, so the tag, the
+          # published wheel, and the image tag can never drift apart.
+          pyproject_version=$(grep -E '^version = ' pyproject.toml | head -1 | sed -E 's/version = "(.*)"/\1/')
+          if [ "$version" != "$pyproject_version" ]; then
+            echo "::error::Version mismatch: release='$version' but pyproject.toml='$pyproject_version'. Bump pyproject.toml first."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Releasing version $version"
+
+  build-sandbox:
+    name: Build sandbox image
+    needs: resolve-version
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/_build-sandbox.yml
+    with:
+      version: ${{ needs.resolve-version.outputs.version }}
+    secrets: inherit
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: resolve-version
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write # required for PyPI trusted publishing (OIDC)
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            astral.sh:443
+            files.pythonhosted.org:443
+            fulcio.sigstore.dev:443
+            github.com:443
+            objects.githubusercontent.com:443
+            pypi.org:443
+            rekor.sigstore.dev:443
+            upload.pypi.org:443
+
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc # v6.4.3
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: Publish to PyPI (trusted publishing)
+        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdf1 # v1.12.4
+
+  github-release:
+    name: Create GitHub release
+    needs: [resolve-version, build-sandbox, publish-pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            github.com:443
+            uploads.github.com:443
+
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Create release
+        uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1.21.0
+        with:
+          tag: v${{ needs.resolve-version.outputs.version }}
+          name: Mimic ${{ needs.resolve-version.outputs.version }}
+          generateReleaseNotes: true
+          draft: false
+          prerelease: false
+          body: |
+            Mimic ${{ needs.resolve-version.outputs.version }}
+
+            ## Install
+            ```bash
+            pip install mimic-qa==${{ needs.resolve-version.outputs.version }}
+            # or run without installing:
+            uvx --from mimic-qa mimic --project examples/minimal --list-pages
+            ```
+
+            The sandbox desktop image is published to Docker Hub:
+            ```bash
+            docker pull clidey/mimic-sandbox:${{ needs.resolve-version.outputs.version }}
+            docker pull clidey/mimic-sandbox:latest
+            ```
+
+  summary:
+    name: Release summary
+    if: always()
+    needs: [resolve-version, build-sandbox, publish-pypi, github-release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: block
+
+      - name: Generate summary
+        env:
+          VERSION: ${{ needs.resolve-version.outputs.version }}
+          SANDBOX: ${{ needs.build-sandbox.result }}
+          PYPI: ${{ needs.publish-pypi.result }}
+          RELEASE: ${{ needs.github-release.result }}
+        run: |
+          {
+            echo "# Release ${VERSION}"
+            echo ""
+            echo "| Step | Result |"
+            echo "|------|--------|"
+            echo "| Sandbox image (Docker Hub) | ${SANDBOX} |"
+            echo "| PyPI package | ${PYPI} |"
+            echo "| GitHub release | ${RELEASE} |"
+          } >> "$GITHUB_STEP_SUMMARY"

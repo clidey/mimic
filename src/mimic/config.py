@@ -1,4 +1,4 @@
-"""Configuration constants for the docs-agent runtime."""
+"""Configuration constants for the mimic runtime."""
 
 from __future__ import annotations
 
@@ -7,8 +7,14 @@ import os
 # ---------------------------------------------------------------------------
 # Desktop container
 # ---------------------------------------------------------------------------
-DESKTOP_CONTAINER = "docsagent-desktop"
-NETWORK_NAME = "docsagent-net"
+DESKTOP_CONTAINER = "mimic-desktop"
+NETWORK_NAME = "mimic-net"
+# Prebuilt sandbox image pulled from Docker Hub (@clidey namespace). Override with
+# MIMIC_SANDBOX_IMAGE; set MIMIC_SANDBOX_BUILD=1 to build locally from the bundled
+# Dockerfile instead (offline use, or when iterating on the image).
+DESKTOP_IMAGE = os.environ.get("MIMIC_SANDBOX_IMAGE", "clidey/mimic-sandbox:latest")
+DESKTOP_IMAGE_LOCAL = "mimic-sandbox:local"
+SANDBOX_FORCE_BUILD = os.environ.get("MIMIC_SANDBOX_BUILD", "").lower() in ("1", "true", "yes")
 
 # ---------------------------------------------------------------------------
 # Display

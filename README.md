@@ -12,9 +12,22 @@ Supports **Anthropic Claude** and **OpenAI CUA**. [How it works &darr;](#how-it-
 - **Your app runs in Docker** — the agent spins up your services via `docker-compose.yml` on a shared network with its sandbox. If your app isn't containerized yet, you'll need to containerize it first.
 - **Your docs are markdown** — a folder of `.md`/`.mdx` files, or a single concatenated `llms.txt`. The agent reads these to know what to test.
 - **An API key** — Anthropic or OpenAI.
-- Python 3.10+, [uv](https://github.com/astral-sh/uv), Docker installed locally.
+- Python 3.10+, [uv](https://github.com/astral-sh/uv), and Docker installed locally (able to run a `--privileged` container). The first run pulls the prebuilt sandbox image from Docker Hub (falls back to a one-time local build if unavailable).
 
 ## Quick start
+
+Install from PyPI (published as [`mimic-qa`](https://pypi.org/project/mimic-qa/)):
+
+```bash
+# Run without installing (recommended)
+uvx --from mimic-qa mimic init my-project
+
+# or install the CLI
+pip install mimic-qa
+mimic --project examples/minimal --list-pages
+```
+
+Or work from a clone (for development, or to run the bundled examples):
 
 ```bash
 # 1. Clone and install
@@ -26,16 +39,23 @@ cp .env.example .env
 # edit .env → set ANTHROPIC_API_KEY or OPENAI_API_KEY
 
 # 3. Run the example
-uv run docs-agent --project examples/minimal --list-pages
-uv run docs-agent --project examples/minimal --page getting-started
+uv run mimic --project examples/minimal --list-pages
+uv run mimic --project examples/minimal --page getting-started
+
+# 4. Point it at your own docs (scaffolds a new project)
+uv run mimic init my-project
 ```
 
+> **First run pulls the sandbox image.** The initial run pulls the prebuilt Ubuntu + Firefox desktop image (`clidey/mimic-sandbox`) from Docker Hub, then reuses it. If the pull fails (offline, or on a fork), it falls back to building locally from the bundled Dockerfile — a few minutes, one time. Force a local build with `MIMIC_SANDBOX_BUILD=1`, or point at a different image with `MIMIC_SANDBOX_IMAGE=...`. You'll need Docker running with permission to start a `--privileged` container.
+
 Results appear in `reports/` — a `summary.md`, per-page pass/fail details, and `.mp4` screen recordings. The repo includes `examples/minimal/` (nginx + 2 doc pages) and `examples/whodb/` (80 pages, multiple sessions) to try out.
+
+Ready to test your own docs? See [Create your own project](#create-your-own-project) below.
 
 ## Create your own project
 
 ```bash
-uv run docs-agent init my-project
+uv run mimic init my-project
 ```
 
 This scaffolds:
@@ -51,14 +71,14 @@ my-project/
 **Edit the three files:**
 
 1. **`qa-project.yaml`** — set your app's name and describe the running environment (Docker hostnames, ports, credentials the LLM needs to know about).
-2. **`docker-compose.yml`** — add your app's services. They must join the `docsagent-net` network (use Docker hostnames like `http://myapp:3000`, not `localhost`).
+2. **`docker-compose.yml`** — add your app's services. They must join the `mimic-net` network (use Docker hostnames like `http://myapp:3000`, not `localhost`).
 3. **`docs/`** — add one `.md`/`.mdx` file per page you want tested. Or point `docs:` in the yaml at your existing docs folder (e.g. `docs: ../my-app/docs/`) — no need to copy files.
 
 Then run it:
 
 ```bash
-uv run docs-agent --project my-project --list-pages   # verify docs parse correctly
-uv run docs-agent --project my-project                 # run full QA suite
+uv run mimic --project my-project --list-pages   # verify docs parse correctly
+uv run mimic --project my-project                 # run full QA suite
 ```
 
 ## Reference
@@ -134,15 +154,15 @@ docs: https://example.com/llms.txt  # or a remote URL
 services:
   myapp:
     image: myorg/myapp:latest
-    networks: [docsagent-net]
+    networks: [mimic-net]
 
 networks:
-  docsagent-net:
-    name: docsagent-net
+  mimic-net:
+    name: mimic-net
     external: true   # agent creates this network; compose joins it
 ```
 
-The `external: true` network is required — the agent creates `docsagent-net` so your services and the desktop sandbox share the same network.
+The `external: true` network is required — the agent creates `mimic-net` so your services and the desktop sandbox share the same network.
 
 ### Providers
 
@@ -167,10 +187,10 @@ OPENAI_EFFORT=medium              # low | medium | high | xhigh
 Launch on a GCP spot VM or AWS EC2 spot instance:
 
 ```bash
-uv run docs-agent-cloud --cloud gcp --provider anthropic
-uv run docs-agent-cloud --cloud aws --provider openai
-uv run docs-agent-cloud --cloud gcp --wait          # launch + poll + download results
-uv run docs-agent-cloud --cloud aws --cleanup        # kill a stuck instance
+uv run mimic-cloud --cloud gcp --provider anthropic
+uv run mimic-cloud --cloud aws --provider openai
+uv run mimic-cloud --cloud gcp --wait          # launch + poll + download results
+uv run mimic-cloud --cloud aws --cleanup        # kill a stuck instance
 ```
 
 `--provider` overrides `AGENT_PROVIDER` in `.env`, so you can keep both API keys configured and pick per-run. Auth uses your local CLI credentials (`gcloud auth` / `aws configure`), but project, bucket, and region must be set explicitly in `.env`:
@@ -187,7 +207,7 @@ AWS_ACCESS_KEY_ID=AKIA...         # or use AWS_IAM_INSTANCE_PROFILE instead
 AWS_SECRET_ACCESS_KEY=...
 
 # What to run on the VM
-DOCS_AGENT_ARGS=--project examples/whodb
+MIMIC_ARGS=--project examples/whodb
 ```
 
 ## Troubleshooting
@@ -207,17 +227,17 @@ Copy `.env.example` to `.env` and fill in your API key. The agent loads `.env` a
 **Firefox fails to launch in sandbox**
 If the desktop container starts but Firefox doesn't appear, check the container logs:
 ```bash
-docker logs docsagent-desktop
+docker logs mimic-desktop
 ```
 The sandbox uses the Mozilla PPA build of Firefox (not snap). If the image is stale, rebuild:
 ```bash
-docker rmi docsagent-desktop && uv run docs-agent --project examples/minimal --page getting-started
+docker rmi mimic-desktop && uv run mimic --project examples/minimal --page getting-started
 ```
 
 **Screen recording is empty or missing**
 ffmpeg records inside the container at `/tmp/recording.mp4`. If recordings are missing:
-- Check that ffmpeg is installed in the sandbox: `docker exec docsagent-desktop which ffmpeg`
-- Check the display is active: `docker exec docsagent-desktop xdpyinfo -display :1`
+- Check that ffmpeg is installed in the sandbox: `docker exec mimic-desktop which ffmpeg`
+- Check the display is active: `docker exec mimic-desktop xdpyinfo -display :1`
 
 **Desktop container times out**
 ```

@@ -1,4 +1,4 @@
-"""Tests for docs_agent.project — YAML config loading and session resolution."""
+"""Tests for mimic.project — YAML config loading and session resolution."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from docs_agent.models import SessionConfig
-from docs_agent.project import (
+from mimic.models import SessionConfig
+from mimic.project import (
     DocsMode,
     auto_group_sessions,
     load_project,

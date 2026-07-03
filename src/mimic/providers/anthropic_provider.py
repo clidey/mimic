@@ -7,14 +7,14 @@ from typing import Any, cast
 import anthropic
 from anthropic.types.beta import BetaOutputConfigParam
 
-from docs_agent.config import (
+from mimic.config import (
     ANTHROPIC_BACKEND,
     ANTHROPIC_BETA,
     ANTHROPIC_EFFORT,
     ANTHROPIC_MAX_TOKENS,
     ANTHROPIC_MODEL,
 )
-from docs_agent.providers import Provider, ProviderResponse, ToolCall, ToolResult
+from mimic.providers import Provider, ProviderResponse, ToolCall, ToolResult
 
 
 def _build_client() -> anthropic.Anthropic | anthropic.AnthropicBedrockMantle:

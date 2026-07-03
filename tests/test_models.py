@@ -1,8 +1,8 @@
-"""Tests for docs_agent.models — data classes and enums."""
+"""Tests for mimic.models — data classes and enums."""
 
 from __future__ import annotations
 
-from docs_agent.models import FailureType, PageStatus, SessionState
+from mimic.models import FailureType, PageStatus, SessionState
 
 
 class TestSessionState:

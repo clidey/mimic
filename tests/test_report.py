@@ -1,11 +1,11 @@
-"""Tests for docs_agent.report — Markdown report generation."""
+"""Tests for mimic.report — Markdown report generation."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from docs_agent.models import FailureType, Page, PageResult, PageStatus, StepResult
-from docs_agent.report import generate_report, slug_to_filename, status_subdir
+from mimic.models import FailureType, Page, PageResult, PageStatus, StepResult
+from mimic.report import generate_report, slug_to_filename, status_subdir
 
 
 def _page(slug: str = "test-page") -> Page:
@@ -47,7 +47,7 @@ class TestStatusSubdir:
 
 class TestGenerateReport:
     def test_creates_report_directory(self, tmp_path: Path, monkeypatch: object) -> None:
-        import docs_agent.report as report_mod
+        import mimic.report as report_mod
 
         monkeypatch.setattr(report_mod, "REPORTS_DIR", tmp_path / "reports")
 
@@ -92,7 +92,7 @@ class TestGenerateReport:
         assert "FAIL" in failed_content
 
     def test_handles_nested_slugs(self, tmp_path: Path, monkeypatch: object) -> None:
-        import docs_agent.report as report_mod
+        import mimic.report as report_mod
 
         monkeypatch.setattr(report_mod, "REPORTS_DIR", tmp_path / "reports")
 

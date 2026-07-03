@@ -1,4 +1,4 @@
-"""Manage Docker containers for docs-agent sessions.
+"""Manage Docker containers for mimic sessions.
 
 All Docker operations use subprocess (no docker-py dependency).
 """
@@ -10,12 +10,15 @@ import subprocess
 import time
 from pathlib import Path
 
-from docs_agent.config import (
+from mimic.config import (
     DESKTOP_CONTAINER,
+    DESKTOP_IMAGE,
+    DESKTOP_IMAGE_LOCAL,
     DISPLAY,
     DISPLAY_HEIGHT,
     DISPLAY_WIDTH,
     NETWORK_NAME,
+    SANDBOX_FORCE_BUILD,
 )
 
 log = logging.getLogger(__name__)
@@ -81,15 +84,46 @@ def compose_down(compose_file: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def start_desktop() -> None:
-    """Build and start the desktop sandbox container.
+def _build_local_image() -> str:
+    """Build the sandbox image locally from the bundled Dockerfile."""
+    log.info("Building desktop image locally (this can take a few minutes)...")
+    _run(["docker", "build", "-t", DESKTOP_IMAGE_LOCAL, str(SANDBOX_DIR)], timeout=600)
+    return DESKTOP_IMAGE_LOCAL
 
-    Uses the bundled Dockerfile in ``src/docs_agent/sandbox/``.
-    Attaches to the shared network so the desktop can reach compose-managed services.
+
+def _resolve_desktop_image() -> str:
+    """Return the sandbox image to run, preferring the prebuilt published image.
+
+    Order: forced local build (MIMIC_SANDBOX_BUILD) → already-present published
+    image → pull published image → fall back to a local build. This keeps the
+    first run fast (a pull, not a multi-minute build) while still working
+    offline or on a fork where the published image isn't available.
+    """
+    if SANDBOX_FORCE_BUILD:
+        return _build_local_image()
+
+    # Already pulled/available locally?
+    if _run(["docker", "image", "inspect", DESKTOP_IMAGE], check=False).returncode == 0:
+        return DESKTOP_IMAGE
+
+    log.info("Pulling sandbox image %s...", DESKTOP_IMAGE)
+    if _run(["docker", "pull", DESKTOP_IMAGE], check=False, timeout=600).returncode == 0:
+        return DESKTOP_IMAGE
+
+    log.warning("Could not pull %s; building locally instead.", DESKTOP_IMAGE)
+    return _build_local_image()
+
+
+def start_desktop() -> None:
+    """Start the desktop sandbox container.
+
+    Prefers the prebuilt image published to Docker Hub (``clidey/mimic-sandbox``),
+    falling back to a local build from the bundled Dockerfile in
+    ``src/mimic/sandbox/``. Attaches to the shared network so the desktop
+    can reach compose-managed services.
     """
     _run(["docker", "rm", "-f", DESKTOP_CONTAINER], check=False)
-    log.info("Building desktop image...")
-    _run(["docker", "build", "-t", "docsagent-desktop", str(SANDBOX_DIR)], timeout=300)
+    image = _resolve_desktop_image()
     _run(
         [
             "docker",
@@ -100,7 +134,7 @@ def start_desktop() -> None:
             DESKTOP_CONTAINER,
             "--network",
             NETWORK_NAME,
-            "docsagent-desktop",
+            image,
         ]
     )
     _wait_for_desktop()

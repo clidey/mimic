@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import re
 
-from docs_agent.config import MAX_AGENT_ITERATIONS
-from docs_agent.models import FailureType, Page, PageResult, PageStatus, StepResult
+from mimic.config import MAX_AGENT_ITERATIONS
+from mimic.models import FailureType, Page, PageResult, PageStatus, StepResult
 
 # ---------------------------------------------------------------------------
 # Regexes for parsing structured assessments

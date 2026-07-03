@@ -15,38 +15,38 @@ Projects provide a `qa-project.yaml` that defines the docs source, environment d
 uv sync
 
 # Run full QA suite against a project
-uv run docs-agent --project examples/whodb
+uv run mimic --project examples/whodb
 
 # Run a single session by name
-uv run docs-agent --project examples/whodb --session "Data Management"
+uv run mimic --project examples/whodb --session "Data Management"
 
 # Run a single page by slug
-uv run docs-agent --project examples/whodb --page installation
+uv run mimic --project examples/whodb --page installation
 
 # List all parsed pages
-uv run docs-agent --project examples/whodb --list-pages
+uv run mimic --project examples/whodb --list-pages
 
 # List all session definitions with infrastructure requirements
-uv run docs-agent --project examples/whodb --list-sessions
+uv run mimic --project examples/whodb --list-sessions
 
 # Verbose/debug logging
-uv run docs-agent --project examples/whodb -v
+uv run mimic --project examples/whodb -v
 
 # JSON-formatted logs (for cloud/structured log capture)
-uv run docs-agent --project examples/whodb --json-log
+uv run mimic --project examples/whodb --json-log
 
 # Launch on cloud spot instance (requires .env with cloud config)
-uv run docs-agent-cloud --cloud gcp --provider anthropic
-uv run docs-agent-cloud --cloud aws --provider openai
-uv run docs-agent-cloud --cloud gcp --wait      # launch + poll + download results
-uv run docs-agent-cloud --cloud aws --cleanup   # terminate instance
+uv run mimic-cloud --cloud gcp --provider anthropic
+uv run mimic-cloud --cloud aws --provider openai
+uv run mimic-cloud --cloud gcp --wait      # launch + poll + download results
+uv run mimic-cloud --cloud aws --cleanup   # terminate instance
 ```
 
 ## Architecture
 
 The agent follows a pipeline: **load project → parse docs → orchestrate sessions → run computer-use agent per page → generate reports**.
 
-### Key modules (all in `src/docs_agent/`)
+### Key modules (all in `src/mimic/`)
 
 - **`project.py`** — Loads `qa-project.yaml` into a `ProjectConfig` dataclass. Resolves relative paths, detects compose files, expands page glob patterns (e.g. `ai/*`), and supports auto-grouping pages by directory prefix when no sessions are defined.
 - **`parser.py`** — Parses a concatenated docs file (e.g. `llms.txt`) delimited by `# filename.mdx` headers into `Page` objects. Used for FILE/URL docs modes (see `project.py` `DocsMode`).
@@ -57,10 +57,10 @@ The agent follows a pipeline: **load project → parse docs → orchestrate sess
 - **`tools.py`** — `dispatch_tool` routes `computer`/`bash`/`str_replace_based_edit_tool` calls to Docker exec handlers (screenshots via `scrot`, mouse/keyboard via `xdotool`). A `computer` call with an `actions` list (OpenAI gpt-5.5) runs the batch via `execute_computer_batch` and returns one screenshot; a single-`action` call (Anthropic) runs `execute_computer_tool` directly.
 - **`assessment.py`** — Parses the structured assessment (`STATUS`/`STEPS`/`FAILURE_TYPE`/`FAILURE_REASON`) from model output into a `PageResult` via regex. `STATUS_RE` also gates whether OpenAI's `gpt-5.2` follow-up assessment is triggered.
 - **`providers/`** — Provider abstraction for interchangeable LLM backends. `__init__.py` defines the `Provider` ABC, normalized types (`ToolCall`, `ToolResult`, `ProviderResponse`), and a `get_provider()` factory. `anthropic_provider.py` wraps the Claude computer-use API via `beta.messages.create` — the client is `Anthropic` or `AnthropicBedrockMantle` depending on `ANTHROPIC_BACKEND`. Note: on Bedrock only some models support the `computer` tool (`anthropic.claude-opus-4-7` works; `claude-sonnet-5`/`claude-opus-4-8` reject it with a 400). `openai_provider.py` wraps the `gpt-5.5` native `computer` tool (Responses API) with `reasoning` summaries, safety check acknowledgment, and a `generate_assessment()` method that calls `gpt-5.2` to produce structured results. gpt-5.5 **batches actions**: each `computer_call` carries an `actions` list, so the provider emits one `ToolCall` with input `{"actions": [...]}` and `tools.py` executes the whole batch, returning a single screenshot.
-- **`docker_manager.py`** — All Docker operations via subprocess (no docker-py). Manages the desktop sandbox container (built from the bundled `sandbox/Dockerfile`) and delegates app services to Docker Compose (`compose_up`/`compose_down`). `prepare_desktop()` pre-launches Firefox and a terminal for CUA models. Also handles screenshots, xdotool exec, and ffmpeg screen recording.
+- **`docker_manager.py`** — All Docker operations via subprocess (no docker-py). Manages the desktop sandbox container and delegates app services to Docker Compose (`compose_up`/`compose_down`). `start_desktop()` resolves the sandbox image via `_resolve_desktop_image()`: prefer the prebuilt `clidey/mimic-sandbox` (Docker Hub), else pull it, else build locally from the bundled `sandbox/Dockerfile` (env: `MIMIC_SANDBOX_IMAGE`, `MIMIC_SANDBOX_BUILD`). `prepare_desktop()` pre-launches Firefox and a terminal for CUA models. Also handles screenshots, xdotool exec, and ffmpeg screen recording. The image is published by the reusable `.github/workflows/_build-sandbox.yml` (invoked by `release.yml`) on version tags.
 - **`report.py`** — Generates timestamped report directories under `reports/` with `summary.md` and per-page Markdown files organized into `passed/`, `failed/`, `skipped/` subdirectories, plus `.mp4` recordings.
 - **`runner_utils.py`** — Shared utilities for cloud runners: `.env` parsing, required-var checks, and tarball packaging.
-- **`cloud.py`** — Unified CLI entry point for cloud runners (`docs-agent-cloud --cloud gcp|aws --provider anthropic|openai`).
+- **`cloud.py`** — Unified CLI entry point for cloud runners (`mimic-cloud --cloud gcp|aws --provider anthropic|openai`).
 - **`gcp.py`** — GCP launcher: packages repo, uploads to GCS, creates a spot VM with a startup script, polls for completion.
 - **`aws.py`** — AWS launcher using boto3: packages repo, uploads to S3, creates an EC2 spot instance, polls for results.
 - **`models.py`** — Dataclasses: `Page`, `PageResult`, `StepResult`, `SessionState` (cascading-failure tracker), `SessionConfig`.
@@ -85,7 +85,7 @@ Requires `.env` file (copy from `.env.example`). Key variables:
 - `OPENAI_API_KEY` — required for OpenAI provider
 - `GCP_PROJECT`, `GCS_BUCKET` — required only for GCP runner
 - `AWS_REGION`, `S3_BUCKET` — required only for AWS runner
-- `DOCS_AGENT_ARGS` — optional CLI args passed through on GCP/AWS
+- `MIMIC_ARGS` — optional CLI args passed through on GCP/AWS
 
 ## Key Conventions
 

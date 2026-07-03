@@ -8,7 +8,7 @@ import tarfile
 import tempfile
 from pathlib import Path
 
-# docs-agent root: two levels up from src/docs_agent/
+# mimic root: two levels up from src/mimic/
 AGENT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
@@ -44,7 +44,7 @@ _EXCLUDE_DIRS = {"reports", ".venv", "__pycache__", ".git", "node_modules"}
 
 
 def package_agent_code() -> Path:
-    """Package the docs-agent repo into a temporary .tar.gz and return its path.
+    """Package the mimic repo into a temporary .tar.gz and return its path.
 
     Excludes reports/, .venv/, .git/, and other non-essential directories
     to keep the archive small. Caller is responsible for deleting the file.
@@ -55,13 +55,13 @@ def package_agent_code() -> Path:
 
     def _filter(info: tarfile.TarInfo) -> tarfile.TarInfo | None:
         parts = Path(info.name).parts
-        # parts[0] is the arcname "docs-agent", skip it for matching
+        # parts[0] is the arcname "mimic", skip it for matching
         if len(parts) > 1 and parts[1] in _EXCLUDE_DIRS:
             return None
         return info
 
     with tarfile.open(tar_path, "w:gz") as tar:
-        tar.add(str(AGENT_ROOT), arcname="docs-agent", filter=_filter)
+        tar.add(str(AGENT_ROOT), arcname="mimic", filter=_filter)
     print(f"   Archive: {tar_path} ({tar_path.stat().st_size / 1024 / 1024:.1f} MB)")
     return tar_path
 
@@ -90,7 +90,7 @@ def build_startup_script(
     """
     return f"""\
 #!/bin/bash
-exec > /var/log/docsagent.log 2>&1
+exec > /var/log/mimic.log 2>&1
 TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
 
 {pre_env_lines}
@@ -104,7 +104,7 @@ cleanup() {{
 }}
 trap cleanup EXIT
 
-echo "=== docs-agent startup $(date) ==="
+echo "=== mimic startup $(date) ==="
 
 # Install Docker
 apt-get update -qq
@@ -128,21 +128,21 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 source /root/.local/bin/env
 
 # Download the agent code
-mkdir -p /opt/docsagent
+mkdir -p /opt/mimic
 {download_code_cmd}
-cd /opt/docsagent
+cd /opt/mimic
 tar xzf code.tar.gz
 
 # Install dependencies
-cd /opt/docsagent/docs-agent
+cd /opt/mimic/mimic
 uv sync
 
 # Run the agent
 export AGENT_PROVIDER="{provider}"
 {key_export}
-echo "=== Starting docs-agent $(date) ==="
-uv run docs-agent {agent_args} || true
-echo "=== docs-agent finished $(date) ==="
+echo "=== Starting mimic $(date) ==="
+uv run mimic {agent_args} || true
+echo "=== mimic finished $(date) ==="
 
 # Upload results
 if [ -d reports ]; then

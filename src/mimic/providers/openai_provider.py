@@ -7,14 +7,14 @@ from typing import Any
 
 import openai
 
-from docs_agent.config import (
+from mimic.config import (
     ASSESSMENT_FORMAT,
     OPENAI_ASSESSMENT_MODEL,
     OPENAI_EFFORT,
     OPENAI_MAX_TOKENS,
     OPENAI_MODEL,
 )
-from docs_agent.providers import Provider, ProviderResponse, ToolCall, ToolResult
+from mimic.providers import Provider, ProviderResponse, ToolCall, ToolResult
 
 log = logging.getLogger(__name__)
 
@@ -77,7 +77,7 @@ class OpenAIProvider(Provider):
         self._tools = [{"type": "computer"}]
 
     def send_initial(self, user_message: str) -> ProviderResponse:
-        from docs_agent.docker_manager import take_screenshot
+        from mimic.docker_manager import take_screenshot
 
         b64 = take_screenshot()
         content: list[dict] = [{"type": "input_text", "text": user_message}]
@@ -190,7 +190,7 @@ class OpenAIProvider(Provider):
         # A screenshot is always expected back; fetch a fresh one if the tool
         # result carried only text (e.g. a bash-only action).
         if screenshot_b64 is None:
-            from docs_agent.docker_manager import take_screenshot
+            from mimic.docker_manager import take_screenshot
 
             screenshot_b64 = take_screenshot()
 

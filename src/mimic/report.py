@@ -7,7 +7,7 @@ import os
 from collections.abc import Callable
 from pathlib import Path
 
-from docs_agent.models import FailureType, PageResult, PageStatus, StepResult
+from mimic.models import FailureType, PageResult, PageStatus, StepResult
 
 # Type alias for the `w = lines.append` pattern used throughout
 _LineAppender = Callable[[str], None]
@@ -87,11 +87,11 @@ def _build_summary(
 
     provider = os.environ.get("AGENT_PROVIDER", "anthropic")
     if provider == "anthropic":
-        from docs_agent.config import ANTHROPIC_MODEL
+        from mimic.config import ANTHROPIC_MODEL
 
         w(f"| Provider | {provider} ({ANTHROPIC_MODEL}) |")
     elif provider == "openai":
-        from docs_agent.config import OPENAI_ASSESSMENT_MODEL, OPENAI_MODEL
+        from mimic.config import OPENAI_ASSESSMENT_MODEL, OPENAI_MODEL
 
         w(f"| Provider | {provider} ({OPENAI_MODEL} + {OPENAI_ASSESSMENT_MODEL}) |")
     else:

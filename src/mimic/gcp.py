@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Launch docs-agent on a GCP spot VM.
+"""Launch mimic on a GCP spot VM.
 
 Usage:
-    docs-agent-gcp              # launch and exit
-    docs-agent-gcp --wait       # launch, poll, download results when done
-    docs-agent-gcp --cleanup    # delete the VM if it's still running
+    mimic-gcp              # launch and exit
+    mimic-gcp --wait       # launch, poll, download results when done
+    mimic-gcp --cleanup    # delete the VM if it's still running
 """
 
 from __future__ import annotations
@@ -15,9 +15,9 @@ import tempfile
 import time
 from pathlib import Path
 
-from docs_agent.runner_utils import AGENT_ROOT, build_startup_script, package_agent_code, require
+from mimic.runner_utils import AGENT_ROOT, build_startup_script, package_agent_code, require
 
-VM_NAME = "docsagent-runner"
+VM_NAME = "mimic-runner"
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +65,7 @@ def vm_exists(project: str, zone: str) -> bool:
 def _build_startup_script(env: dict[str, str]) -> str:
     provider = env.get("AGENT_PROVIDER", "anthropic")
     bucket = require(env, "GCS_BUCKET")
-    agent_args = env.get("DOCS_AGENT_ARGS", "")
+    agent_args = env.get("MIMIC_ARGS", "")
 
     if provider == "openai":
         api_key = require(env, "OPENAI_API_KEY")
@@ -78,8 +78,8 @@ def _build_startup_script(env: dict[str, str]) -> str:
         provider=provider,
         key_export=key_export,
         agent_args=agent_args,
-        upload_logs_cmd=f"gsutil cp /var/log/docsagent.log gs://{bucket}/results/$TIMESTAMP/runner.log || true",
-        download_code_cmd=f"gsutil cp gs://{bucket}/docsagent-code.tar.gz /opt/docsagent/code.tar.gz",
+        upload_logs_cmd=f"gsutil cp /var/log/mimic.log gs://{bucket}/results/$TIMESTAMP/runner.log || true",
+        download_code_cmd=f"gsutil cp gs://{bucket}/mimic-code.tar.gz /opt/mimic/code.tar.gz",
         upload_results_cmd=(
             f"gsutil -m cp -r reports/ gs://{bucket}/results/$TIMESTAMP/\n"
             f'    echo "$TIMESTAMP" | gsutil cp - gs://{bucket}/latest.txt\n'
@@ -113,13 +113,13 @@ def cmd_launch(env: dict[str, str]) -> None:
             check=False,
         )
 
-    # Package the docs-agent code
-    print("\n1. Packaging docs-agent code...")
+    # Package the mimic code
+    print("\n1. Packaging mimic code...")
     tar_path = package_agent_code()
 
     # Upload to GCS
-    print(f"\n2. Uploading to gs://{bucket}/docsagent-code.tar.gz...")
-    run(["gsutil", "cp", str(tar_path), f"gs://{bucket}/docsagent-code.tar.gz"])
+    print(f"\n2. Uploading to gs://{bucket}/mimic-code.tar.gz...")
+    run(["gsutil", "cp", str(tar_path), f"gs://{bucket}/mimic-code.tar.gz"])
     tar_path.unlink()
 
     # Write startup script to temp file
@@ -168,12 +168,12 @@ def cmd_launch(env: dict[str, str]) -> None:
     print(f"""
 Done! The VM is booting and will:
   1. Install Docker + uv
-  2. Run docs-agent
+  2. Run mimic
   3. Upload results to gs://{bucket}/results/<timestamp>/
   4. Shut itself down
 
 Monitor:
-  gcloud compute ssh {VM_NAME} --zone {zone} --project {project} -- tail -f /var/log/docsagent.log
+  gcloud compute ssh {VM_NAME} --zone {zone} --project {project} -- tail -f /var/log/mimic.log
   gsutil ls gs://{bucket}/results/
 
 Download results when done:

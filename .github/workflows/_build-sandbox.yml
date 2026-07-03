@@ -1,0 +1,136 @@
+name: Build sandbox image
+
+# Reusable workflow: builds the desktop sandbox image and pushes it to Docker Hub
+# (clidey/mimic-sandbox) with SBOM + provenance attestations and cosign signatures.
+# Per-arch native runners build the images; a manifest job stitches them into a
+# multi-arch tag. Called by release.yml — not triggered directly.
+#
+# Requires secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN (write scope for the
+# clidey namespace), passed via `secrets: inherit`.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 0.3.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build:
+    name: Build sandbox (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    environment: deploy-docker
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            platform: linux/amd64
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            arch: arm64
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            auth.docker.io:443
+            azure.archive.ubuntu.com:443
+            azure.archive.ubuntu.com:80
+            deb.debian.org:443
+            deb.debian.org:80
+            download.docker.com:443
+            github.com:443
+            index.docker.io:443
+            keyserver.ubuntu.com:443
+            launchpad.net:443
+            launchpadlibrarian.net:443
+            ppa.launchpadcontent.net:443
+            production.cloudflare.docker.com:443
+            production.cloudfront.docker.com:443
+            ports.ubuntu.com:443
+            ports.ubuntu.com:80
+            registry-1.docker.io:443
+            security.ubuntu.com:443
+            security.ubuntu.com:80
+
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push (per-arch)
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: src/mimic/sandbox
+          platforms: ${{ matrix.platform }}
+          push: true
+          sbom: true
+          provenance: mode=max
+          tags: clidey/mimic-sandbox:${{ inputs.version }}-${{ matrix.arch }}
+          cache-from: type=gha,scope=mimic-sandbox-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=mimic-sandbox-${{ matrix.arch }}
+
+  manifest:
+    name: Create multi-arch manifest
+    needs: build
+    runs-on: ubuntu-latest
+    environment: deploy-docker
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            auth.docker.io:443
+            fulcio.sigstore.dev:443
+            github.com:443
+            index.docker.io:443
+            production.cloudflare.docker.com:443
+            production.cloudfront.docker.com:443
+            registry-1.docker.io:443
+            rekor.sigstore.dev:443
+            tuf-repo-cdn.sigstore.dev:443
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Create and push multi-arch manifest
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          for tag in "${VERSION}" latest; do
+            docker buildx imagetools create \
+              -t "clidey/mimic-sandbox:${tag}" \
+              "clidey/mimic-sandbox:${VERSION}-amd64" \
+              "clidey/mimic-sandbox:${VERSION}-arm64"
+          done
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign images with Cosign
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          cosign sign --yes "clidey/mimic-sandbox:${VERSION}"
+          cosign sign --yes clidey/mimic-sandbox:latest

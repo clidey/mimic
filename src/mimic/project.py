@@ -10,7 +10,7 @@ from pathlib import Path
 
 import yaml
 
-from docs_agent.models import SessionConfig
+from mimic.models import SessionConfig
 
 log = logging.getLogger(__name__)
 

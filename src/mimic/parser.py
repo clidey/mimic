@@ -6,7 +6,7 @@ import re
 import urllib.request
 from pathlib import Path
 
-from docs_agent.models import Page
+from mimic.models import Page
 
 # Matches lines like: # introduction.mdx  or  # features/schema-explorer.mdx
 _PAGE_HEADER_TEMPLATE = r"^# (.+\.{ext})$"

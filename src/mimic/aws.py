@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Launch docs-agent on an AWS EC2 spot instance.
+"""Launch mimic on an AWS EC2 spot instance.
 
 Usage:
-    docs-agent-aws              # launch and exit
-    docs-agent-aws --wait       # launch, poll, download results when done
-    docs-agent-aws --cleanup    # terminate the instance if still running
+    mimic-aws              # launch and exit
+    mimic-aws --wait       # launch, poll, download results when done
+    mimic-aws --cleanup    # terminate the instance if still running
 """
 
 from __future__ import annotations
@@ -16,9 +16,9 @@ from typing import Any
 import boto3
 from botocore.exceptions import ClientError
 
-from docs_agent.runner_utils import AGENT_ROOT, build_startup_script, package_agent_code, require
+from mimic.runner_utils import AGENT_ROOT, build_startup_script, package_agent_code, require
 
-INSTANCE_TAG = "docsagent-runner"
+INSTANCE_TAG = "mimic-runner"
 
 
 # ---------------------------------------------------------------------------
@@ -81,7 +81,7 @@ def _build_startup_script(env: dict[str, str]) -> str:
     provider = env.get("AGENT_PROVIDER", "anthropic")
     bucket = require(env, "S3_BUCKET")
     region = get_region(env)
-    agent_args = env.get("DOCS_AGENT_ARGS", "")
+    agent_args = env.get("MIMIC_ARGS", "")
     profile = env.get("AWS_IAM_INSTANCE_PROFILE", "")
 
     if provider == "openai":
@@ -112,8 +112,8 @@ def _build_startup_script(env: dict[str, str]) -> str:
         agent_args=agent_args,
         extra_packages="awscli",
         pre_env_lines=f'{cred_lines}\nexport AWS_DEFAULT_REGION="{region}"',
-        upload_logs_cmd=f"aws s3 cp /var/log/docsagent.log s3://{bucket}/results/$TIMESTAMP/runner.log || true",
-        download_code_cmd=f"aws s3 cp s3://{bucket}/docsagent-code.tar.gz /opt/docsagent/code.tar.gz",
+        upload_logs_cmd=f"aws s3 cp /var/log/mimic.log s3://{bucket}/results/$TIMESTAMP/runner.log || true",
+        download_code_cmd=f"aws s3 cp s3://{bucket}/mimic-code.tar.gz /opt/mimic/code.tar.gz",
         upload_results_cmd=(
             f"aws s3 sync reports/ s3://{bucket}/results/$TIMESTAMP/reports/\n"
             f'    echo "$TIMESTAMP" | aws s3 cp - s3://{bucket}/latest.txt\n'
@@ -150,13 +150,13 @@ def cmd_launch(env: dict[str, str]) -> None:
         waiter = ec2.get_waiter("instance_terminated")
         waiter.wait(InstanceIds=[iid])
 
-    # Package the docs-agent code
-    print("\n1. Packaging docs-agent code...")
+    # Package the mimic code
+    print("\n1. Packaging mimic code...")
     tar_path = package_agent_code()
 
     # Upload to S3
-    print(f"\n2. Uploading to s3://{bucket}/docsagent-code.tar.gz...")
-    s3.upload_file(str(tar_path), bucket, "docsagent-code.tar.gz")
+    print(f"\n2. Uploading to s3://{bucket}/mimic-code.tar.gz...")
+    s3.upload_file(str(tar_path), bucket, "mimic-code.tar.gz")
     tar_path.unlink()
 
     # Look up AMI
@@ -223,15 +223,15 @@ def cmd_launch(env: dict[str, str]) -> None:
     print(f"""
 Done! Instance {instance_id} is launching and will:
   1. Install Docker + uv + AWS CLI
-  2. Download code from s3://{bucket}/docsagent-code.tar.gz
-  3. Run docs-agent
+  2. Download code from s3://{bucket}/mimic-code.tar.gz
+  3. Run mimic
   4. Upload results to s3://{bucket}/results/<timestamp>/
   5. Shut itself down (auto-terminates)
 
 Monitor:
   aws ec2 describe-instances --instance-ids {instance_id} --region {region}
   aws s3 ls s3://{bucket}/results/
-{"  ssh -i <key>.pem ubuntu@<public-ip> tail -f /var/log/docsagent.log" if key_pair else ""}
+{"  ssh -i <key>.pem ubuntu@<public-ip> tail -f /var/log/mimic.log" if key_pair else ""}
 Download results when done:
   aws s3 sync s3://{bucket}/results/<timestamp>/ ./results/
 """)

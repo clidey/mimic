@@ -1,11 +1,11 @@
-"""Tests for docs_agent.assessment — structured output parsing."""
+"""Tests for mimic.assessment — structured output parsing."""
 
 from __future__ import annotations
 
 import textwrap
 
-from docs_agent.assessment import parse_result
-from docs_agent.models import FailureType, Page, PageStatus
+from mimic.assessment import parse_result
+from mimic.models import FailureType, Page, PageStatus
 
 
 def _page(slug: str = "test-page") -> Page:

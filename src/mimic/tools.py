@@ -6,7 +6,7 @@ import logging
 import time
 from typing import Any
 
-from docs_agent.docker_manager import exec_in_desktop, take_screenshot, xdotool
+from mimic.docker_manager import exec_in_desktop, take_screenshot, xdotool
 
 log = logging.getLogger(__name__)
 
