@@ -7,15 +7,33 @@ from typing import Any, cast
 import anthropic
 from anthropic.types.beta import BetaOutputConfigParam
 
-from docs_agent.config import ANTHROPIC_BETA, ANTHROPIC_EFFORT, ANTHROPIC_MAX_TOKENS, ANTHROPIC_MODEL
+from docs_agent.config import (
+    ANTHROPIC_BACKEND,
+    ANTHROPIC_BETA,
+    ANTHROPIC_EFFORT,
+    ANTHROPIC_MAX_TOKENS,
+    ANTHROPIC_MODEL,
+)
 from docs_agent.providers import Provider, ProviderResponse, ToolCall, ToolResult
 
 
+def _build_client() -> anthropic.Anthropic | anthropic.AnthropicBedrockMantle:
+    """Construct the Claude client for the configured backend.
+
+    "bedrock" routes through Amazon Bedrock (uses ambient AWS credentials and
+    AWS_REGION); "api" uses the first-party Anthropic API (ANTHROPIC_API_KEY).
+    Both expose the same beta.messages.create surface.
+    """
+    if ANTHROPIC_BACKEND == "bedrock":
+        return anthropic.AnthropicBedrockMantle(max_retries=2)
+    return anthropic.Anthropic(max_retries=2)
+
+
 class AnthropicProvider(Provider):
-    """Provider backed by the Anthropic messages-beta API."""
+    """Provider backed by the Anthropic messages-beta API (direct or via Bedrock)."""
 
     def __init__(self) -> None:
-        self._client = anthropic.Anthropic(max_retries=2)
+        self._client = _build_client()
         self._system: str = ""
         self._messages: list[dict] = []
         self._tools: list[dict] = []
