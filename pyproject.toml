@@ -8,7 +8,7 @@ license = "MIT"
 dependencies = [
     "anthropic==0.116.0",
     "boto3==1.43.49",
-    "openai==2.44.0",
+    "openai==2.47.0",
     "pyyaml==6.0.3",
 ]
 
